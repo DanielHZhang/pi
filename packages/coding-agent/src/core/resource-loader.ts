@@ -29,11 +29,12 @@ import {
 	DefaultPackageManager,
 	type PackageInstallFailure,
 	type PathMetadata,
+	type ResolvedPaths,
 	type ResolvedResource,
 } from "./package-manager.ts";
 import type { PromptTemplate } from "./prompt-templates.ts";
 import { loadPromptTemplates } from "./prompt-templates.ts";
-import { SettingsManager } from "./settings-manager.ts";
+import { type ResourceScopeSetting, type ResourceScopeSettings, SettingsManager } from "./settings-manager.ts";
 import type { Skill } from "./skills.ts";
 import { loadSkills } from "./skills.ts";
 import {
@@ -257,9 +258,23 @@ function findShadowedContextFile(cwd: string): string | undefined {
 	return worktreeContextFile ? join(mainRepoRoot, basename(worktreeContextFile.path)) : undefined;
 }
 
+function resourceScopeAllows(setting: ResourceScopeSetting, scope: "user" | "project" | "temporary"): boolean {
+	if (scope === "temporary") {
+		return true;
+	}
+	if (setting === "all") {
+		return true;
+	}
+	if (setting === "none") {
+		return false;
+	}
+	return setting === scope;
+}
+
 export function loadProjectContextFiles(options: {
 	cwd: string;
 	agentDir: string;
+	scope?: ResourceScopeSetting;
 }): Array<{ path: string; content: string }> {
 	const resolvedCwd = resolvePath(options.cwd);
 	const resolvedAgentDir = resolvePath(options.agentDir);
@@ -267,36 +282,41 @@ export function loadProjectContextFiles(options: {
 	const contextFiles: Array<{ path: string; content: string }> = [];
 	const seenPaths = new Set<string>();
 
-	const globalContext = loadContextFileFromDir(resolvedAgentDir);
-	if (globalContext) {
-		contextFiles.push(globalContext);
-		seenPaths.add(globalContext.path);
+	const scope = options.scope ?? "all";
+	if (resourceScopeAllows(scope, "user")) {
+		const globalContext = loadContextFileFromDir(resolvedAgentDir);
+		if (globalContext) {
+			contextFiles.push(globalContext);
+			seenPaths.add(globalContext.path);
+		}
 	}
 
-	const ancestorContextFiles: Array<{ path: string; content: string }> = [];
+	if (resourceScopeAllows(scope, "project")) {
+		const ancestorContextFiles: Array<{ path: string; content: string }> = [];
 
-	const shadowedContextFile = findShadowedContextFile(resolvedCwd);
-	let currentDir = resolvedCwd;
+		const shadowedContextFile = findShadowedContextFile(resolvedCwd);
+		let currentDir = resolvedCwd;
 
-	while (true) {
-		const contextFile = loadContextFileFromDir(currentDir);
-		// Compare the directory's real path, not the file's: a worktree AGENTS.md that
-		// symlinks to the main repo's file resolves to the shadowed path itself.
-		const isShadowed =
-			shadowedContextFile !== undefined &&
-			contextFile !== null &&
-			pathsEqual(join(canonicalizePath(currentDir), basename(contextFile.path)), shadowedContextFile);
-		if (contextFile && !isShadowed && !seenPaths.has(contextFile.path)) {
-			ancestorContextFiles.unshift(contextFile);
-			seenPaths.add(contextFile.path);
+		while (true) {
+			const contextFile = loadContextFileFromDir(currentDir);
+			// Compare the directory's real path, not the file's: a worktree AGENTS.md that
+			// symlinks to the main repo's file resolves to the shadowed path itself.
+			const isShadowed =
+				shadowedContextFile !== undefined &&
+				contextFile !== null &&
+				pathsEqual(join(canonicalizePath(currentDir), basename(contextFile.path)), shadowedContextFile);
+			if (contextFile && !isShadowed && !seenPaths.has(contextFile.path)) {
+				ancestorContextFiles.unshift(contextFile);
+				seenPaths.add(contextFile.path);
+			}
+
+			const parentDir = dirname(currentDir);
+			if (parentDir === currentDir) break;
+			currentDir = parentDir;
 		}
 
-		const parentDir = dirname(currentDir);
-		if (parentDir === currentDir) break;
-		currentDir = parentDir;
+		contextFiles.push(...ancestorContextFiles);
 	}
-
-	contextFiles.push(...ancestorContextFiles);
 
 	return contextFiles;
 }
@@ -530,6 +550,22 @@ export class DefaultResourceLoader implements ResourceLoader {
 		}
 	}
 
+	private filterResolvedPathsByResourceScopes(
+		paths: ResolvedPaths,
+		resourceScopes: Required<ResourceScopeSettings>,
+	): ResolvedPaths {
+		return {
+			extensions: this.filterResourcesByScope(paths.extensions, resourceScopes.extensions),
+			skills: this.filterResourcesByScope(paths.skills, resourceScopes.skills),
+			prompts: this.filterResourcesByScope(paths.prompts, resourceScopes.prompts),
+			themes: this.filterResourcesByScope(paths.themes, resourceScopes.themes),
+		};
+	}
+
+	private filterResourcesByScope(resources: ResolvedResource[], setting: ResourceScopeSetting): ResolvedResource[] {
+		return resources.filter((resource) => resourceScopeAllows(setting, resource.metadata.scope));
+	}
+
 	async loadProjectTrustExtensions(): Promise<LoadExtensionsResult> {
 		// Force untrusted project settings for the bootstrap pass. This keeps project-local
 		// extensions/packages out while still loading user/global and temporary CLI extensions.
@@ -554,7 +590,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 		// reload() preserves SettingsManager.projectTrusted and reloads settings for that trust state.
 		await this.settingsManager.reload();
-		const resolvedPaths = await this.packageManager.resolve();
+		const resourceScopes = this.settingsManager.getResourceScopes();
+		const resolvedPaths = this.filterResolvedPathsByResourceScopes(
+			await this.packageManager.resolve(),
+			resourceScopes,
+		);
 		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
 			temporary: true,
 		});
@@ -681,6 +721,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 				: loadProjectContextFiles({
 						cwd: this.cwd,
 						agentDir: this.agentDir,
+						scope: resourceScopes.contextFiles,
 					}),
 		};
 		const resolvedAgentsFiles = this.agentsFilesOverride ? this.agentsFilesOverride(agentsFiles) : agentsFiles;
@@ -710,7 +751,11 @@ export class DefaultResourceLoader implements ResourceLoader {
 	}
 
 	private async loadCurrentExtensionSet(options: { includeInlineFactories: boolean }): Promise<LoadExtensionsResult> {
-		const resolvedPaths = await this.packageManager.resolve();
+		const resourceScopes = this.settingsManager.getResourceScopes();
+		const resolvedPaths = this.filterResolvedPathsByResourceScopes(
+			await this.packageManager.resolve(),
+			resourceScopes,
+		);
 		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
 			temporary: true,
 		});
