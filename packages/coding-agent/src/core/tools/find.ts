@@ -62,11 +62,13 @@ function formatFindCall(args: { pattern: string; path?: string; limit?: number }
 	const path = rawPath !== null ? shortenPath(rawPath || ".") : null;
 	const limit = args?.limit;
 	const invalidArg = invalidArgText(theme);
+	const pathDisplay = path === null ? invalidArg : theme.fg("syntaxString", path);
 	let text =
 		theme.fg("toolTitle", theme.bold("find")) +
 		" " +
 		(pattern === null ? invalidArg : theme.fg("accent", pattern || "")) +
-		theme.fg("toolOutput", ` in ${path === null ? invalidArg : path}`);
+		theme.fg("toolOutput", " in ") +
+		pathDisplay;
 	if (limit !== undefined) {
 		text += theme.fg("toolOutput", ` (limit ${limit})`);
 	}

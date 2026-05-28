@@ -75,11 +75,13 @@ function formatGrepCall(
 	const glob = str(args?.glob);
 	const limit = args?.limit;
 	const invalidArg = invalidArgText(theme);
+	const pathDisplay = path === null ? invalidArg : theme.fg("syntaxString", path);
 	let text =
 		theme.fg("toolTitle", theme.bold("grep")) +
 		" " +
 		(pattern === null ? invalidArg : theme.fg("accent", `/${pattern || ""}/`)) +
-		theme.fg("toolOutput", ` in ${path === null ? invalidArg : path}`);
+		theme.fg("toolOutput", " in ") +
+		pathDisplay;
 	if (glob) text += theme.fg("toolOutput", ` (${glob})`);
 	if (limit !== undefined) text += theme.fg("toolOutput", ` limit ${limit}`);
 	return text;

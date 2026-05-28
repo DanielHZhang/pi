@@ -10223,6 +10223,23 @@ export const MODELS = {
 			contextWindow: 204800,
 			maxTokens: 196608,
 		} satisfies Model<"openai-completions">,
+		"minimax/minimax-m2.5:free": {
+			id: "minimax/minimax-m2.5:free",
+			name: "MiniMax: MiniMax M2.5 (free)",
+			api: "openai-completions",
+			provider: "openrouter",
+			baseUrl: "https://openrouter.ai/api/v1",
+			reasoning: true,
+			input: ["text"],
+			cost: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+			},
+			contextWindow: 262144,
+			maxTokens: 8192,
+		} satisfies Model<"openai-completions">,
 		"minimax/minimax-m2.7": {
 			id: "minimax/minimax-m2.7",
 			name: "MiniMax: MiniMax M2.7",

@@ -9,7 +9,7 @@ import { createAllToolDefinitions, type ToolName } from "../src/core/tools/index
 import { createReadTool, createReadToolDefinition } from "../src/core/tools/read.ts";
 import { createWriteToolDefinition } from "../src/core/tools/write.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
-import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
 function createBaseToolDefinition(name = "custom_tool"): ToolDefinition {
@@ -133,6 +133,21 @@ describe("ToolExecutionComponent parity", () => {
 		const rendered = stripAnsi(component.render(120).join("\n"));
 		expect(rendered).toContain("read");
 		expect(rendered).toContain("README.md");
+	});
+
+	test("renders built-in tool paths with syntax string color", () => {
+		const component = new ToolExecutionComponent(
+			"read",
+			"tool-3b",
+			{ path: "README.md" },
+			{},
+			undefined,
+			createFakeTui(),
+			process.cwd(),
+		);
+		const rendered = component.render(120).join("\n");
+		expect(rendered).toContain(`${theme.getFgAnsi("syntaxString")}README.md\x1b[39m`);
+		expect(rendered).not.toContain(`${theme.getFgAnsi("accent")}README.md\x1b[39m`);
 	});
 
 	test("bash execute emits an initial empty partial update before output arrives", async () => {
