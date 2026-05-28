@@ -31,7 +31,7 @@ const APP_KEYBINDINGS = {
 		description: "Suspend to background",
 	},
 	"app.thinking.cycle": {
-		defaultKeys: "shift+tab",
+		defaultKeys: "alt+t",
 		description: "Cycle thinking level",
 	},
 	"app.thinking.save": {
