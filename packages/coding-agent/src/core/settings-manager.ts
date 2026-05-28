@@ -1,7 +1,8 @@
 import type { Transport } from "@earendil-works/pi-ai";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { minimatch } from "minimatch";
+import { dirname, isAbsolute, join, relative, sep } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
@@ -59,6 +60,27 @@ export interface WarningSettings {
 }
 
 export type DefaultProjectTrust = "ask" | "always" | "never";
+export type ResourceScopeSetting = "all" | "user" | "project" | "none";
+
+export interface ResourceScopeSettings {
+	contextFiles?: ResourceScopeSetting; // default: "all"
+	extensions?: ResourceScopeSetting; // default: "all"
+	skills?: ResourceScopeSetting; // default: "all"
+	prompts?: ResourceScopeSetting; // default: "all"
+	themes?: ResourceScopeSetting; // default: "all"
+}
+
+export interface CwdResourceScopeSettings extends ResourceScopeSettings {
+	/** Directory or glob pattern where these resource scopes apply. Non-glob paths match descendants. */
+	path?: string;
+	/** Directories or glob patterns where these resource scopes apply. Non-glob paths match descendants. */
+	paths?: string[];
+	/** Optional nested form for the scope settings; direct fields above are also supported. */
+	resourceScopes?: ResourceScopeSettings;
+}
+
+const RESOURCE_SCOPE_KEYS = ["contextFiles", "extensions", "skills", "prompts", "themes"] as const;
+const RESOURCE_SCOPE_VALUES: ResourceScopeSetting[] = ["all", "user", "project", "none"];
 
 export type TransportSetting = Transport;
 
@@ -104,6 +126,8 @@ export interface Settings {
 	skills?: string[]; // Array of local skill file paths or directories
 	prompts?: string[]; // Array of local prompt template paths or directories
 	themes?: string[]; // Array of local theme file paths or directories
+	resourceScopes?: ResourceScopeSettings; // Limit discovered resources by source scope
+	cwdResourceScopes?: CwdResourceScopeSettings[]; // Apply resource scope limits only for matching cwd paths
 	enableSkillCommands?: boolean; // default: true - register skills as /skill:name commands
 	terminal?: TerminalSettings;
 	images?: ImageSettings;
@@ -163,10 +187,45 @@ function parseTimeoutSetting(value: unknown, settingName: string): number | unde
 	return undefined;
 }
 
+function isResourceScopeSetting(value: unknown): value is ResourceScopeSetting {
+	return typeof value === "string" && RESOURCE_SCOPE_VALUES.includes(value as ResourceScopeSetting);
+}
+
+function toResourceScopeSettings(value: unknown): ResourceScopeSettings {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return {};
+	}
+	const record = value as Record<string, unknown>;
+	const settings: ResourceScopeSettings = {};
+	for (const key of RESOURCE_SCOPE_KEYS) {
+		const scope = record[key];
+		if (isResourceScopeSetting(scope)) {
+			settings[key] = scope;
+		}
+	}
+	return settings;
+}
+
+function mergeResourceScopeSettings(
+	base: ResourceScopeSettings,
+	overrides: ResourceScopeSettings,
+): ResourceScopeSettings {
+	return { ...base, ...overrides };
+}
+
+function hasGlobPattern(pattern: string): boolean {
+	return pattern.includes("*") || pattern.includes("?") || pattern.includes("[") || pattern.includes("{");
+}
+
+function toPosixPath(path: string): string {
+	return path.split(sep).join("/");
+}
+
 export type SettingsScope = "global" | "project";
 
 export interface SettingsManagerCreateOptions {
 	projectTrusted?: boolean;
+	cwd?: string;
 }
 
 export interface SettingsStorage {
@@ -278,6 +337,7 @@ export class SettingsManager {
 	private projectSettingsLoadError: Error | null = null; // Track if project settings file had parse errors
 	private writeQueue: Promise<void> = Promise.resolve();
 	private errors: SettingsError[];
+	private cwd?: string;
 
 	private constructor(
 		storage: SettingsStorage,
@@ -287,6 +347,7 @@ export class SettingsManager {
 		projectLoadError: Error | null = null,
 		initialErrors: SettingsError[] = [],
 		projectTrusted = true,
+		cwd?: string,
 	) {
 		this.storage = storage;
 		this.globalSettings = initialGlobal;
@@ -295,6 +356,7 @@ export class SettingsManager {
 		this.globalSettingsLoadError = globalLoadError;
 		this.projectSettingsLoadError = projectLoadError;
 		this.errors = [...initialErrors];
+		this.cwd = cwd ? resolvePath(cwd) : undefined;
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
 	}
 
@@ -305,7 +367,7 @@ export class SettingsManager {
 		options: SettingsManagerCreateOptions = {},
 	): SettingsManager {
 		const storage = new FileSettingsStorage(cwd, agentDir);
-		return SettingsManager.fromStorage(storage, options);
+		return SettingsManager.fromStorage(storage, { ...options, cwd });
 	}
 
 	/** Create a SettingsManager from an arbitrary storage backend */
@@ -329,15 +391,16 @@ export class SettingsManager {
 			projectLoad.error,
 			initialErrors,
 			projectTrusted,
+			options.cwd,
 		);
 	}
 
 	/** Create an in-memory SettingsManager (no file I/O) */
-	static inMemory(settings: Partial<Settings> = {}): SettingsManager {
+	static inMemory(settings: Partial<Settings> = {}, options: SettingsManagerCreateOptions = {}): SettingsManager {
 		const storage = new InMemorySettingsStorage();
 		const initialSettings = SettingsManager.migrateSettings(structuredClone(settings) as Record<string, unknown>);
 		storage.withLock("global", () => JSON.stringify(initialSettings, null, 2));
-		return SettingsManager.fromStorage(storage);
+		return SettingsManager.fromStorage(storage, options);
 	}
 
 	private static loadFromStorage(storage: SettingsStorage, scope: SettingsScope, projectTrusted = true): Settings {
@@ -1007,6 +1070,62 @@ export class SettingsManager {
 		this.updateProjectSettings("themes", (settings) => {
 			settings.themes = paths;
 		});
+	}
+
+	getResourceScopes(): Required<ResourceScopeSettings> {
+		let scopes: ResourceScopeSettings = {
+			contextFiles: "all",
+			extensions: "all",
+			skills: "all",
+			prompts: "all",
+			themes: "all",
+		};
+
+		scopes = mergeResourceScopeSettings(scopes, toResourceScopeSettings(this.settings.resourceScopes));
+
+		for (const override of this.settings.cwdResourceScopes ?? []) {
+			if (!this.matchesCwdResourceScope(override)) {
+				continue;
+			}
+			const directScopes = toResourceScopeSettings(override);
+			const nestedScopes = toResourceScopeSettings(override.resourceScopes);
+			scopes = mergeResourceScopeSettings(scopes, mergeResourceScopeSettings(directScopes, nestedScopes));
+		}
+
+		return {
+			contextFiles: scopes.contextFiles ?? "all",
+			extensions: scopes.extensions ?? "all",
+			skills: scopes.skills ?? "all",
+			prompts: scopes.prompts ?? "all",
+			themes: scopes.themes ?? "all",
+		};
+	}
+
+	private matchesCwdResourceScope(override: CwdResourceScopeSettings): boolean {
+		if (!this.cwd) {
+			return false;
+		}
+
+		const paths = [override.path, ...(override.paths ?? [])].filter((path): path is string => Boolean(path));
+		return paths.some((path) => this.matchesCwdPath(path));
+	}
+
+	private matchesCwdPath(path: string): boolean {
+		if (!this.cwd) {
+			return false;
+		}
+
+		const resolvedPattern = resolvePath(path, process.cwd(), { trim: true });
+		const normalizedCwd = resolvePath(this.cwd);
+		if (hasGlobPattern(resolvedPattern)) {
+			return minimatch(toPosixPath(normalizedCwd), toPosixPath(resolvedPattern), { dot: true });
+		}
+
+		const relativePath = relative(resolvedPattern, normalizedCwd);
+		return (
+			relativePath === "" ||
+			(relativePath !== ".." && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath))
+		);
 	}
 
 	getEnableSkillCommands(): boolean {

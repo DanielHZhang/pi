@@ -156,6 +156,57 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("resource scopes", () => {
+		it("defaults every resource type to all", () => {
+			const manager = SettingsManager.inMemory();
+
+			expect(manager.getResourceScopes()).toEqual({
+				contextFiles: "all",
+				extensions: "all",
+				skills: "all",
+				prompts: "all",
+				themes: "all",
+			});
+		});
+
+		it("applies cwd resource scopes to matching directories and descendants", () => {
+			const manager = SettingsManager.inMemory(
+				{
+					cwdResourceScopes: [
+						{
+							path: projectDir,
+							contextFiles: "user",
+							extensions: "user",
+						},
+					],
+				},
+				{ cwd: join(projectDir, "packages", "app") },
+			);
+
+			expect(manager.getResourceScopes()).toMatchObject({
+				contextFiles: "user",
+				extensions: "user",
+				skills: "all",
+			});
+		});
+
+		it("ignores cwd resource scopes for non-matching directories", () => {
+			const manager = SettingsManager.inMemory(
+				{
+					cwdResourceScopes: [
+						{
+							path: join(testDir, "other"),
+							contextFiles: "user",
+						},
+					],
+				},
+				{ cwd: projectDir },
+			);
+
+			expect(manager.getResourceScopes().contextFiles).toBe("all");
+		});
+	});
+
 	describe("reload", () => {
 		it("should reload global settings from disk", async () => {
 			const settingsPath = join(agentDir, "settings.json");

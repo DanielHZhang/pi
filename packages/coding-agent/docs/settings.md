@@ -217,9 +217,49 @@ Paths in `~/.pi/agent/settings.json` resolve relative to `~/.pi/agent`. Paths in
 | `skills` | string[] | `[]` | Local skill file paths or directories |
 | `prompts` | string[] | `[]` | Local prompt template paths or directories |
 | `themes` | string[] | `[]` | Local theme file paths or directories |
+| `resourceScopes` | object | all resources | Limit discovered resources by source scope. Values: `"all"`, `"user"`, `"project"`, `"none"` for `contextFiles`, `extensions`, `skills`, `prompts`, and `themes` |
+| `cwdResourceScopes` | array | `[]` | Apply resource scope limits only when the current working directory matches a path or glob |
 | `enableSkillCommands` | boolean | `true` | Register skills as `/skill:name` commands |
 
 Arrays support glob patterns and exclusions. Use `!pattern` to exclude. Use `+path` to force-include an exact path and `-path` to force-exclude an exact path.
+
+#### resourceScopes
+
+Use `resourceScopes` to limit resource discovery by source:
+
+```json
+{
+  "resourceScopes": {
+    "contextFiles": "user",
+    "extensions": "user",
+    "skills": "user",
+    "prompts": "user"
+  }
+}
+```
+
+- `"all"` (default): load user, project, and explicit CLI resources.
+- `"user"`: load only user-scoped resources (`~/.pi/agent`, `~/.agents`, and user packages), plus explicit CLI paths.
+- `"project"`: load only project-scoped resources (`.pi`, `.agents` under the project), plus explicit CLI paths.
+- `"none"`: disable discovered resources of that type, but explicit CLI paths still load.
+
+Use `cwdResourceScopes` in global settings to apply these limits only inside selected directories. Non-glob paths match that directory and descendants. Use absolute paths or `~` for home-relative paths:
+
+```json
+{
+  "cwdResourceScopes": [
+    {
+      "path": "~/work/webflow",
+      "contextFiles": "user",
+      "extensions": "user",
+      "skills": "user",
+      "prompts": "user"
+    }
+  ]
+}
+```
+
+This is useful when one repository has project context files or project resources that you do not want Pi to load, while keeping your user-level configuration.
 
 #### packages
 

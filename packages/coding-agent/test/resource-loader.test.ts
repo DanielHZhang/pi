@@ -365,6 +365,51 @@ Content`,
 			expect(agentsFiles).toEqual([]);
 		});
 
+		it("should limit discovered context files and resources by configured scope", async () => {
+			writeFileSync(join(agentDir, "AGENTS.md"), "# User Guidelines");
+			writeFileSync(join(cwd, "AGENTS.md"), "# Project Guidelines");
+
+			const userExtDir = join(agentDir, "extensions");
+			const projectExtDir = join(cwd, ".pi", "extensions");
+			mkdirSync(userExtDir, { recursive: true });
+			mkdirSync(projectExtDir, { recursive: true });
+			const userExtPath = join(userExtDir, "user.ts");
+			const projectExtPath = join(projectExtDir, "project.ts");
+			writeFileSync(userExtPath, "export default function() {}");
+			writeFileSync(projectExtPath, "export default function() {}");
+
+			const userSkillDir = join(agentDir, "skills", "user-skill");
+			const projectSkillDir = join(cwd, ".pi", "skills", "project-skill");
+			mkdirSync(userSkillDir, { recursive: true });
+			mkdirSync(projectSkillDir, { recursive: true });
+			writeFileSync(join(userSkillDir, "SKILL.md"), "---\nname: user-skill\ndescription: user\n---\n");
+			writeFileSync(join(projectSkillDir, "SKILL.md"), "---\nname: project-skill\ndescription: project\n---\n");
+
+			const userPromptsDir = join(agentDir, "prompts");
+			const projectPromptsDir = join(cwd, ".pi", "prompts");
+			mkdirSync(userPromptsDir, { recursive: true });
+			mkdirSync(projectPromptsDir, { recursive: true });
+			writeFileSync(join(userPromptsDir, "user.md"), "User prompt");
+			writeFileSync(join(projectPromptsDir, "project.md"), "Project prompt");
+
+			const settingsManager = SettingsManager.inMemory({
+				resourceScopes: {
+					contextFiles: "user",
+					extensions: "user",
+					skills: "user",
+					prompts: "user",
+				},
+			});
+			const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles.map((file) => file.path)).toEqual([join(agentDir, "AGENTS.md")]);
+			expect(loader.getExtensions().extensions.map((extension) => extension.path)).toEqual([userExtPath]);
+			expect(loader.getExtensions().extensions.some((extension) => extension.path === projectExtPath)).toBe(false);
+			expect(loader.getSkills().skills.map((skill) => skill.name)).toEqual(["user-skill"]);
+			expect(loader.getPrompts().prompts.map((prompt) => prompt.name)).toEqual(["user"]);
+		});
+
 		it("should discover SYSTEM.md from cwd/.pi", async () => {
 			const piDir = join(cwd, ".pi");
 			mkdirSync(piDir, { recursive: true });
