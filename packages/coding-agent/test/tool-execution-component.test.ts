@@ -136,6 +136,21 @@ describe("ToolExecutionComponent parity", () => {
 		expect(rendered).toContain("README.md");
 	});
 
+	test("renders built-in tool paths with syntax string color", () => {
+		const component = new ToolExecutionComponent(
+			"read",
+			"tool-3b",
+			{ path: "README.md" },
+			{},
+			createReadToolDefinition(process.cwd()),
+			createFakeTui(),
+			process.cwd(),
+		);
+		const rendered = component.render(120).join("\n");
+		expect(rendered).toContain(`${theme.getFgAnsi("syntaxString")}README.md\x1b[39m`);
+		expect(rendered).not.toContain(`${theme.getFgAnsi("accent")}README.md\x1b[39m`);
+	});
+
 	test("bash execute emits an initial empty partial update before output arrives", async () => {
 		const updates: Array<{ content: Array<{ type: string; text?: string }>; details?: unknown }> = [];
 		const operations: BashOperations = {
