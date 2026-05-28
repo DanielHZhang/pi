@@ -203,6 +203,34 @@ const SkillsInputSchema = Type.Union(
 	{ description: "Local skill file paths or directories." },
 );
 
+const ResourceScopeSettingSchema = Type.Union(
+	[Type.Literal("all"), Type.Literal("user"), Type.Literal("project"), Type.Literal("none")],
+	{ description: 'Limit a resource type to a single source scope, or use "all"/"none".' },
+);
+const ResourceScopeProperties = {
+	contextFiles: Type.Optional(ResourceScopeSettingSchema),
+	extensions: Type.Optional(ResourceScopeSettingSchema),
+	skills: Type.Optional(ResourceScopeSettingSchema),
+	prompts: Type.Optional(ResourceScopeSettingSchema),
+	themes: Type.Optional(ResourceScopeSettingSchema),
+};
+const ResourceScopeSettingsSchema = Type.Object(ResourceScopeProperties, {
+	description: "Limit discovered resources by source scope.",
+});
+const CwdResourceScopeSettingsSchema = Type.Object(
+	{
+		...ResourceScopeProperties,
+		path: Type.Optional(Type.String({ description: "Directory or glob pattern where these resource scopes apply." })),
+		paths: Type.Optional(
+			Type.Array(Type.String(), {
+				description: "Directories or glob patterns where these resource scopes apply.",
+			}),
+		),
+		resourceScopes: Type.Optional(ResourceScopeSettingsSchema),
+	},
+	{ description: "Resource scope limits applied only for matching cwd paths." },
+);
+
 export const SettingsSchema = Type.Object(
 	{
 		$schema: Type.Optional(Type.String({ description: "JSON Schema reference." })),
@@ -317,6 +345,8 @@ export const SettingsSchema = Type.Object(
 			Type.Array(Type.String(), { description: "Local prompt template file paths or directories." }),
 		),
 		themes: Type.Optional(Type.Array(Type.String(), { description: "Local theme file paths or directories." })),
+		resourceScopes: Type.Optional(ResourceScopeSettingsSchema),
+		cwdResourceScopes: Type.Optional(Type.Array(CwdResourceScopeSettingsSchema)),
 		enableSkillCommands: Type.Optional(
 			Type.Boolean({
 				description: "Register skills as /skill:name commands.",
@@ -470,6 +500,9 @@ export type CodemodeMode = Static<typeof CodemodeModeSchema>;
 export interface CodemodeSettings extends Static<typeof CodemodeSettingsSchema> {}
 export type DefaultProjectTrust = NonNullable<SettingsInput["defaultProjectTrust"]>;
 export type QuietStartup = NonNullable<SettingsInput["quietStartup"]>;
+export type ResourceScopeSetting = Static<typeof ResourceScopeSettingSchema>;
+export interface ResourceScopeSettings extends Static<typeof ResourceScopeSettingsSchema> {}
+export interface CwdResourceScopeSettings extends Static<typeof CwdResourceScopeSettingsSchema> {}
 export type TransportSetting = NonNullable<SettingsInput["transport"]>;
 export type SessionShareDestination = NonNullable<SettingsInput["sessionShareDestination"]>;
 export type PackageSource = Static<typeof PackageSourceSchema>;

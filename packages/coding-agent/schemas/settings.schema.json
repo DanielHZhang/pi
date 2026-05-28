@@ -380,6 +380,353 @@
       },
       "description": "Local theme file paths or directories."
     },
+    "resourceScopes": {
+      "type": "object",
+      "properties": {
+        "contextFiles": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "all"
+            },
+            {
+              "type": "string",
+              "const": "user"
+            },
+            {
+              "type": "string",
+              "const": "project"
+            },
+            {
+              "type": "string",
+              "const": "none"
+            }
+          ],
+          "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+        },
+        "extensions": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "all"
+            },
+            {
+              "type": "string",
+              "const": "user"
+            },
+            {
+              "type": "string",
+              "const": "project"
+            },
+            {
+              "type": "string",
+              "const": "none"
+            }
+          ],
+          "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+        },
+        "skills": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "all"
+            },
+            {
+              "type": "string",
+              "const": "user"
+            },
+            {
+              "type": "string",
+              "const": "project"
+            },
+            {
+              "type": "string",
+              "const": "none"
+            }
+          ],
+          "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+        },
+        "prompts": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "all"
+            },
+            {
+              "type": "string",
+              "const": "user"
+            },
+            {
+              "type": "string",
+              "const": "project"
+            },
+            {
+              "type": "string",
+              "const": "none"
+            }
+          ],
+          "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+        },
+        "themes": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": "all"
+            },
+            {
+              "type": "string",
+              "const": "user"
+            },
+            {
+              "type": "string",
+              "const": "project"
+            },
+            {
+              "type": "string",
+              "const": "none"
+            }
+          ],
+          "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+        }
+      },
+      "description": "Limit discovered resources by source scope."
+    },
+    "cwdResourceScopes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "contextFiles": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "all"
+              },
+              {
+                "type": "string",
+                "const": "user"
+              },
+              {
+                "type": "string",
+                "const": "project"
+              },
+              {
+                "type": "string",
+                "const": "none"
+              }
+            ],
+            "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+          },
+          "extensions": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "all"
+              },
+              {
+                "type": "string",
+                "const": "user"
+              },
+              {
+                "type": "string",
+                "const": "project"
+              },
+              {
+                "type": "string",
+                "const": "none"
+              }
+            ],
+            "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+          },
+          "skills": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "all"
+              },
+              {
+                "type": "string",
+                "const": "user"
+              },
+              {
+                "type": "string",
+                "const": "project"
+              },
+              {
+                "type": "string",
+                "const": "none"
+              }
+            ],
+            "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+          },
+          "prompts": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "all"
+              },
+              {
+                "type": "string",
+                "const": "user"
+              },
+              {
+                "type": "string",
+                "const": "project"
+              },
+              {
+                "type": "string",
+                "const": "none"
+              }
+            ],
+            "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+          },
+          "themes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "all"
+              },
+              {
+                "type": "string",
+                "const": "user"
+              },
+              {
+                "type": "string",
+                "const": "project"
+              },
+              {
+                "type": "string",
+                "const": "none"
+              }
+            ],
+            "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory or glob pattern where these resource scopes apply."
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Directories or glob patterns where these resource scopes apply."
+          },
+          "resourceScopes": {
+            "type": "object",
+            "properties": {
+              "contextFiles": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "all"
+                  },
+                  {
+                    "type": "string",
+                    "const": "user"
+                  },
+                  {
+                    "type": "string",
+                    "const": "project"
+                  },
+                  {
+                    "type": "string",
+                    "const": "none"
+                  }
+                ],
+                "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+              },
+              "extensions": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "all"
+                  },
+                  {
+                    "type": "string",
+                    "const": "user"
+                  },
+                  {
+                    "type": "string",
+                    "const": "project"
+                  },
+                  {
+                    "type": "string",
+                    "const": "none"
+                  }
+                ],
+                "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+              },
+              "skills": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "all"
+                  },
+                  {
+                    "type": "string",
+                    "const": "user"
+                  },
+                  {
+                    "type": "string",
+                    "const": "project"
+                  },
+                  {
+                    "type": "string",
+                    "const": "none"
+                  }
+                ],
+                "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+              },
+              "prompts": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "all"
+                  },
+                  {
+                    "type": "string",
+                    "const": "user"
+                  },
+                  {
+                    "type": "string",
+                    "const": "project"
+                  },
+                  {
+                    "type": "string",
+                    "const": "none"
+                  }
+                ],
+                "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+              },
+              "themes": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "all"
+                  },
+                  {
+                    "type": "string",
+                    "const": "user"
+                  },
+                  {
+                    "type": "string",
+                    "const": "project"
+                  },
+                  {
+                    "type": "string",
+                    "const": "none"
+                  }
+                ],
+                "description": "Limit a resource type to a single source scope, or use \"all\"/\"none\"."
+              }
+            },
+            "description": "Limit discovered resources by source scope."
+          }
+        },
+        "description": "Resource scope limits applied only for matching cwd paths."
+      }
+    },
     "enableSkillCommands": {
       "type": "boolean",
       "description": "Register skills as /skill:name commands.",
