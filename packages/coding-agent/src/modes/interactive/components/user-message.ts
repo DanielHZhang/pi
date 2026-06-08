@@ -43,7 +43,7 @@ export class UserMessageComponent extends Container {
 			new Markdown(
 				this.text,
 				this.outputPad,
-				1,
+				0,
 				this.markdownTheme,
 				{
 					color: (content: string) => theme.fg("userMessageText", content),
