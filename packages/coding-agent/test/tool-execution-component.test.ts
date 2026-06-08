@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, test } from "vitest";
 import { getReadmePath } from "../src/config.ts";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import { type BashOperations, createBashToolDefinition } from "../src/core/tools/bash.ts";
+import { createAllToolDefinitions, type ToolName } from "../src/core/tools/index.ts";
 import { createReadTool, createReadToolDefinition } from "../src/core/tools/read.ts";
 import { createWriteToolDefinition } from "../src/core/tools/write.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
@@ -362,6 +363,40 @@ describe("ToolExecutionComponent parity", () => {
 		const rendered = stripAnsi(component.render(120).join("\n"));
 		expect(rendered).toContain("custom_tool");
 		expect(rendered).toContain("done");
+	});
+
+	test("renders built-in tool cards without vertical padding inside the card", () => {
+		const definitions = createAllToolDefinitions(process.cwd());
+		const scenarios: Array<{ name: ToolName; args: Record<string, unknown> }> = [
+			{ name: "read", args: { path: "README.md" } },
+			{ name: "bash", args: { command: "echo hello" } },
+			{
+				name: "edit",
+				args: { path: "README.md", edits: [{ oldText: "before", newText: "after" }] },
+			},
+			{ name: "write", args: { path: "notes.txt", content: "one\ntwo" } },
+			{ name: "grep", args: { pattern: "hello", path: "." } },
+			{ name: "find", args: { pattern: "*.ts", path: "." } },
+			{ name: "ls", args: { path: "." } },
+		];
+
+		for (const { name, args } of scenarios) {
+			const component = new ToolExecutionComponent(
+				name,
+				`tool-${name}-padding`,
+				args,
+				{},
+				definitions[name],
+				createFakeTui(),
+				process.cwd(),
+			);
+			const lines = component.render(120).map(stripAnsi);
+			const cardLines = lines.slice(1);
+
+			expect(cardLines.length).toBeGreaterThan(0);
+			expect(cardLines[0]?.trim()).not.toBe("");
+			expect(cardLines[cardLines.length - 1]?.trim()).not.toBe("");
+		}
 	});
 
 	test("trims trailing blank display lines from write previews", () => {
