@@ -26,7 +26,7 @@ export class SkillInvocationMessageComponent extends Box {
 		messageId?: string,
 		timestamp?: string,
 	) {
-		super(outputPad, 1, (t) => theme.bg("customMessageBg", t));
+		super(outputPad, 0, (t) => theme.bg("customMessageBg", t));
 		this.skillBlock = skillBlock;
 		this.markdownTheme = markdownTheme;
 		this.markdownTransformers = markdownTransformers;

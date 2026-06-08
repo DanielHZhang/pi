@@ -25,7 +25,7 @@ export class BranchSummaryMessageComponent extends Box {
 		messageId?: string,
 		timestamp?: string,
 	) {
-		super(outputPad, 1, (t) => theme.bg("customMessageBg", t));
+		super(outputPad, 0, (t) => theme.bg("customMessageBg", t));
 		this.message = message;
 		this.markdownTheme = markdownTheme;
 		this.markdownTransformers = markdownTransformers;
