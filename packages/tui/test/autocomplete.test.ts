@@ -228,6 +228,57 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.ok(!values?.includes("@packages/ai/src/autocomplete.ts"));
 		});
 
+		test("treats slashes as ordered fuzzy tokens when the prefix is not a real directory", async () => {
+			setupFolder(baseDir, {
+				files: {
+					"src/components/Button.tsx": "export {};",
+					"src/utils/button.ts": "export {};",
+				},
+			});
+
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			const line = "@components/button";
+			const result = await getSuggestions(provider, [line], 0, line.length);
+
+			const values = result?.items.map((item) => item.value) ?? [];
+			assert.ok(values.includes("@src/components/Button.tsx"));
+			assert.ok(!values.includes("@src/utils/button.ts"));
+		});
+
+		test("supports fuzzy slash tokens", async () => {
+			setupFolder(baseDir, {
+				files: {
+					"src/components/Button.tsx": "export {};",
+					"src/components/Card.tsx": "export {};",
+				},
+			});
+
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			const line = "@cmp/btn";
+			const result = await getSuggestions(provider, [line], 0, line.length);
+
+			const values = result?.items.map((item) => item.value) ?? [];
+			assert.ok(values.includes("@src/components/Button.tsx"));
+			assert.ok(!values.includes("@src/components/Card.tsx"));
+		});
+
+		test("keeps real directory prefixes scoped while searching recursively", async () => {
+			setupFolder(baseDir, {
+				files: {
+					"src/components/Button.tsx": "export {};",
+					"lib/components/Button.tsx": "export {};",
+				},
+			});
+
+			const provider = new CombinedAutocompleteProvider([], baseDir, requireFdPath());
+			const line = "@src/button";
+			const result = await getSuggestions(provider, [line], 0, line.length);
+
+			const values = result?.items.map((item) => item.value) ?? [];
+			assert.ok(values.includes("@src/components/Button.tsx"));
+			assert.ok(!values.includes("@lib/components/Button.tsx"));
+		});
+
 		test("matches directory in middle of path with --full-path", async () => {
 			setupFolder(baseDir, {
 				files: {

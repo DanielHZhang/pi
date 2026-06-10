@@ -42,6 +42,76 @@ function buildFdPathQuery(query: string): string {
 	return pattern;
 }
 
+function splitPathQueryTokens(query: string): string[] {
+	return toDisplayPath(query)
+		.split("/")
+		.map((token) => token.trim())
+		.filter(Boolean);
+}
+
+function buildFuzzyFdPathQuery(query: string): string {
+	const tokens = splitPathQueryTokens(query);
+	if (tokens.length === 0) {
+		return "";
+	}
+
+	return tokens
+		.join("")
+		.split("")
+		.map((char) => escapeRegex(char))
+		.join(".*");
+}
+
+type OrderedFuzzyTokenMatch = {
+	end: number;
+	score: number;
+};
+
+function isPathBoundary(text: string, index: number): boolean {
+	return index === 0 || /[\s\-_./:]/.test(text[index - 1] ?? "");
+}
+
+function findOrderedFuzzyToken(text: string, token: string, startIndex: number): OrderedFuzzyTokenMatch | null {
+	if (!token) {
+		return { end: startIndex, score: 0 };
+	}
+
+	let bestMatch: OrderedFuzzyTokenMatch | null = null;
+	for (let i = startIndex; i < text.length; i += 1) {
+		if (text[i] !== token[0]) {
+			continue;
+		}
+
+		let tokenIndex = 0;
+		let textIndex = i;
+		while (textIndex < text.length && tokenIndex < token.length) {
+			if (text[textIndex] === token[tokenIndex]) {
+				tokenIndex += 1;
+			}
+			textIndex += 1;
+		}
+
+		if (tokenIndex < token.length) {
+			break;
+		}
+
+		const spanLength = textIndex - i;
+		let score = (spanLength - token.length) * 2 + i * 0.05;
+		if (isPathBoundary(text, i)) {
+			score -= 10;
+		}
+		if (spanLength === token.length) {
+			score -= 20;
+		}
+
+		if (!bestMatch || score < bestMatch.score) {
+			bestMatch = { end: textIndex, score };
+		}
+	}
+
+	return bestMatch;
+}
+
 function findLastDelimiter(text: string): number {
 	for (let i = text.length - 1; i >= 0; i -= 1) {
 		if (PATH_DELIMITERS.has(text[i] ?? "")) {
@@ -127,6 +197,7 @@ async function walkDirectoryWithFd(
 	query: string,
 	maxResults: number,
 	signal: AbortSignal,
+	options: { fullPath?: boolean; pattern?: string } = {},
 ): Promise<Array<{ path: string; isDirectory: boolean }>> {
 	const args = [
 		"--base-directory",
@@ -147,12 +218,13 @@ async function walkDirectoryWithFd(
 		".git/**",
 	];
 
-	if (toDisplayPath(query).includes("/")) {
+	if (options.fullPath ?? toDisplayPath(query).includes("/")) {
 		args.push("--full-path");
 	}
 
-	if (query) {
-		args.push(buildFdPathQuery(query));
+	const pattern = options.pattern ?? buildFdPathQuery(query);
+	if (pattern) {
+		args.push(pattern);
 	}
 
 	return await new Promise((resolve) => {
@@ -692,27 +764,48 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		}
 	}
 
-	// Score an entry against the query (higher = better match)
-	// isDirectory adds bonus to prioritize folders
-	private scoreEntry(filePath: string, query: string, isDirectory: boolean): number {
-		const fileName = basename(filePath);
-		const lowerFileName = fileName.toLowerCase();
-		const lowerQuery = query.toLowerCase();
+	// Score an entry against the query (lower = better match).
+	// Slash-separated query parts are treated as ordered fuzzy path tokens.
+	private scoreEntry(filePath: string, query: string, isDirectory: boolean): number | null {
+		const tokens = splitPathQueryTokens(query.toLowerCase());
+		if (tokens.length === 0) {
+			return isDirectory ? -5 : 0;
+		}
 
+		const normalizedPath = toDisplayPath(filePath).toLowerCase();
+		const fileName = basename(normalizedPath.replace(/\/$/, ""));
+		let cursor = 0;
 		let score = 0;
 
-		// Exact filename match (highest)
-		if (lowerFileName === lowerQuery) score = 100;
-		// Filename starts with query
-		else if (lowerFileName.startsWith(lowerQuery)) score = 80;
-		// Substring match in filename
-		else if (lowerFileName.includes(lowerQuery)) score = 50;
-		// Substring match in full path
-		else if (filePath.toLowerCase().includes(lowerQuery)) score = 30;
+		for (const token of tokens) {
+			const match = findOrderedFuzzyToken(normalizedPath, token, cursor);
+			if (!match) {
+				return null;
+			}
+			score += match.score;
+			cursor = match.end;
+		}
 
-		// Directories get a bonus to appear first
-		if (isDirectory && score > 0) score += 10;
+		const finalToken = tokens[tokens.length - 1] ?? "";
+		if (fileName === finalToken) {
+			score -= 100;
+		} else if (fileName.startsWith(finalToken)) {
+			score -= 60;
+		} else if (fileName.includes(finalToken)) {
+			score -= 30;
+		} else {
+			const fileNameMatch = findOrderedFuzzyToken(fileName, finalToken, 0);
+			if (fileNameMatch) {
+				score += fileNameMatch.score - 10;
+			}
+		}
 
+		if (isDirectory) {
+			score -= 5;
+		}
+
+		// Prefer shorter paths when the match quality is otherwise similar.
+		score += normalizedPath.length * 0.01;
 		return score;
 	}
 
@@ -729,7 +822,18 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 			const scopedQuery = this.resolveScopedFuzzyQuery(query);
 			const fdBaseDir = scopedQuery?.baseDir ?? this.basePath;
 			const fdQuery = scopedQuery?.query ?? query;
-			const entries = await walkDirectoryWithFd(fdBaseDir, this.fdPath, fdQuery, 100, options.signal);
+			const isFuzzyPathQuery = !scopedQuery && toDisplayPath(query).includes("/");
+			const entries = await walkDirectoryWithFd(
+				fdBaseDir,
+				this.fdPath,
+				fdQuery,
+				isFuzzyPathQuery ? 500 : 100,
+				options.signal,
+				{
+					fullPath: isFuzzyPathQuery ? true : undefined,
+					pattern: isFuzzyPathQuery ? buildFuzzyFdPathQuery(fdQuery) : undefined,
+				},
+			);
 			if (options.signal.aborted) {
 				return [];
 			}
@@ -737,11 +841,11 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 			const scoredEntries = entries
 				.map((entry) => ({
 					...entry,
-					score: fdQuery ? this.scoreEntry(entry.path, fdQuery, entry.isDirectory) : 1,
+					score: this.scoreEntry(entry.path, fdQuery, entry.isDirectory),
 				}))
-				.filter((entry) => entry.score > 0);
+				.filter((entry): entry is typeof entry & { score: number } => entry.score !== null);
 
-			scoredEntries.sort((a, b) => b.score - a.score);
+			scoredEntries.sort((a, b) => a.score - b.score);
 			const topEntries = scoredEntries.slice(0, 20);
 
 			const suggestions: AutocompleteItem[] = [];
