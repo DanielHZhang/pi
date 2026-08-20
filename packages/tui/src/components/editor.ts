@@ -1214,8 +1214,8 @@ export class Editor implements Component, Focusable {
 
 		// Check if we should trigger or update autocomplete
 		if (!this.autocompleteState) {
-			// Auto-trigger for "/" at the start of a line (slash commands)
-			if (char === "/" && this.isAtStartOfMessage()) {
+			// Always ask the provider for suggestions when a slash is typed.
+			if (char === "/") {
 				this.tryTriggerAutocomplete();
 			}
 			// Auto-trigger for symbol-based completion like @, #, or provider triggers at token boundaries
@@ -2177,14 +2177,6 @@ export class Editor implements Component, Focusable {
 	// Slash menu only allowed on the first line of the editor
 	private isSlashMenuAllowed(): boolean {
 		return this.state.cursorLine === 0;
-	}
-
-	// Helper method to check if cursor is at start of message (for slash command detection)
-	private isAtStartOfMessage(): boolean {
-		if (!this.isSlashMenuAllowed()) return false;
-		const currentLine = this.state.lines[this.state.cursorLine] || "";
-		const beforeCursor = currentLine.slice(0, this.state.cursorCol);
-		return beforeCursor.trim() === "" || beforeCursor.trim() === "/";
 	}
 
 	private isInSlashCommandContext(textBeforeCursor: string): boolean {

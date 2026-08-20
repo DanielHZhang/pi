@@ -76,11 +76,12 @@ This is progressive disclosure: only descriptions are always in context, full in
 Skills register as `/skill:name` commands:
 
 ```bash
-/skill:brave-search           # Load and execute the skill
-/skill:pdf-tools extract      # Load skill with arguments
+/skill:brave-search                         # Load and execute the skill
+/skill:pdf-tools extract                    # Load a skill with arguments
+/skill:code-review /skill:security-audit .  # Load multiple skills for one prompt
 ```
 
-Arguments after the command are appended to the skill content as `User: <args>`.
+To load multiple skills, place consecutive `/skill:name` commands at the start of the prompt. Text after the last skill command is appended after all selected skill contents.
 
 Toggle skill commands via `/settings` in interactive mode or in `settings.json`:
 
