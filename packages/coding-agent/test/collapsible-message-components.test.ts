@@ -71,7 +71,6 @@ describe("collapsible message components", () => {
 			name: "example-skill",
 			location: "/tmp/example-skill.md",
 			content: "skill details",
-			userMessage: undefined,
 		});
 
 		expect(renderText(component)).not.toContain("skill details");
