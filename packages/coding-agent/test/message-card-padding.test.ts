@@ -58,7 +58,6 @@ test("renders chat message cards without vertical padding inside the card", () =
 			name: "example-skill",
 			location: "/tmp/example-skill/SKILL.md",
 			content: "# Example skill\n\nUse this skill.",
-			userMessage: undefined,
 		}),
 	);
 });

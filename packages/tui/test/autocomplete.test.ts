@@ -98,19 +98,49 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.strictEqual(result, null, "Should not trigger for slash commands");
 		});
 
-		it("triggers for absolute paths after slash command argument", async () => {
+		it("triggers naturally for absolute paths after slash command arguments", async () => {
 			const provider = new CombinedAutocompleteProvider([], "/tmp");
 			const lines = ["/command /"];
 			const cursorLine = 0;
 			const cursorCol = 10; // After the second "/"
 
-			const result = await getSuggestions(provider, lines, cursorLine, cursorCol, true);
+			const result = await getSuggestions(provider, lines, cursorLine, cursorCol);
 
 			console.log("Result:", result);
 			assert.notEqual(result, null, "Should trigger for absolute paths in command arguments");
 			if (result) {
 				assert.strictEqual(result.prefix, "/", "Prefix should be '/'");
 			}
+		});
+	});
+
+	describe("slash command suggestions", () => {
+		const commands = [
+			{ name: "model", description: "Select model" },
+			{ name: "skill:first", description: "First skill" },
+			{ name: "skill:second", description: "Second skill" },
+		];
+
+		it("suggests another skill after a completed skill command", async () => {
+			const provider = new CombinedAutocompleteProvider(commands, "/tmp");
+			const line = "/skill:first /";
+
+			const result = await getSuggestions(provider, [line], 0, line.length);
+
+			assert.deepStrictEqual(result?.items.map((item) => item.value).sort(), ["skill:first", "skill:second"]);
+			assert.strictEqual(result?.prefix, "/");
+		});
+
+		it("applies a repeated skill command at the current slash token", async () => {
+			const provider = new CombinedAutocompleteProvider(commands, "/tmp");
+			const line = "/skill:first /sec";
+			const result = await getSuggestions(provider, [line], 0, line.length);
+			const item = result?.items.find((candidate) => candidate.value === "skill:second");
+			assert.ok(result && item);
+
+			const applied = provider.applyCompletion([line], 0, line.length, item, result.prefix);
+
+			assert.strictEqual(applied.lines[0], "/skill:first /skill:second ");
 		});
 	});
 
