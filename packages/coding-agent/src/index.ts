@@ -19,8 +19,9 @@ export {
 	type AgentSessionEventListener,
 	type ModelCycleResult,
 	type ParsedSkillBlock,
+	type ParsedSkillInvocation,
 	type PromptOptions,
-	parseSkillBlock,
+	parseSkillInvocation,
 	type SessionStats,
 } from "./core/agent-session.ts";
 export { readStoredCredential } from "./core/auth-storage.ts";

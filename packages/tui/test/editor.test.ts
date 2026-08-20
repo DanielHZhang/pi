@@ -2116,6 +2116,28 @@ describe("Editor component", () => {
 	});
 
 	describe("Autocomplete", () => {
+		it("requests autocomplete whenever a slash is typed", async () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			let requestedText = "";
+			editor.setAutocompleteProvider({
+				getSuggestions: async (lines, _cursorLine, cursorCol) => {
+					requestedText = (lines[0] ?? "").slice(0, cursorCol);
+					return {
+						items: [{ value: "skill:second", label: "skill:second" }],
+						prefix: "/",
+					};
+				},
+				applyCompletion,
+			});
+			editor.setText("/skill:first ");
+
+			editor.handleInput("/");
+			await flushAutocomplete();
+
+			assert.strictEqual(requestedText, "/skill:first /");
+			assert.strictEqual(editor.isShowingAutocomplete(), true);
+		});
+
 		it("auto-applies single force-file suggestion without showing menu", async () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 

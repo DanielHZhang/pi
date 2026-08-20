@@ -377,57 +377,34 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 			};
 		}
 
-		if (!options.force && textBeforeCursor.startsWith("/")) {
-			const spaceIndex = textBeforeCursor.indexOf(" ");
-
-			if (spaceIndex === -1) {
-				const prefix = textBeforeCursor.slice(1);
-				const commandItems = this.commands.map((cmd) => {
-					const name = "name" in cmd ? cmd.name : cmd.value;
-					const hint = "argumentHint" in cmd && cmd.argumentHint ? cmd.argumentHint : undefined;
-					const desc = cmd.description ?? "";
-					const fullDesc = hint ? (desc ? `${hint} — ${desc}` : hint) : desc;
-					return {
-						name,
-						label: name,
-						description: fullDesc || undefined,
-					};
-				});
-
-				const filtered = fuzzyFilter(commandItems, prefix, (item) => item.name).map((item) => ({
-					value: item.name,
-					label: item.label,
-					...(item.description && { description: item.description }),
-				}));
-
-				if (filtered.length === 0) return null;
-
-				return {
-					items: filtered,
-					prefix: textBeforeCursor,
-				};
+		if (!options.force && cursorLine === 0) {
+			const commandContext = this.extractSlashCommandContext(textBeforeCursor);
+			if (commandContext) {
+				const suggestions = this.getSlashCommandSuggestions(commandContext.prefix, commandContext.skillsOnly);
+				if (suggestions) return suggestions;
 			}
 
-			const commandName = textBeforeCursor.slice(1, spaceIndex);
-			const argumentText = textBeforeCursor.slice(spaceIndex + 1);
+			if (textBeforeCursor.startsWith("/")) {
+				const spaceIndex = textBeforeCursor.search(/\s/);
+				if (spaceIndex !== -1) {
+					const commandName = textBeforeCursor.slice(1, spaceIndex);
+					const argumentText = textBeforeCursor.slice(spaceIndex + 1);
 
-			const command = this.commands.find((cmd) => {
-				const name = "name" in cmd ? cmd.name : cmd.value;
-				return name === commandName;
-			});
-			if (!command || !("getArgumentCompletions" in command) || !command.getArgumentCompletions) {
-				return null;
+					const command = this.commands.find((cmd) => {
+						const name = "name" in cmd ? cmd.name : cmd.value;
+						return name === commandName;
+					});
+					if (command && "getArgumentCompletions" in command && command.getArgumentCompletions) {
+						const argumentSuggestions = await command.getArgumentCompletions(argumentText);
+						if (Array.isArray(argumentSuggestions) && argumentSuggestions.length > 0) {
+							return {
+								items: argumentSuggestions,
+								prefix: argumentText,
+							};
+						}
+					}
+				}
 			}
-
-			const argumentSuggestions = await command.getArgumentCompletions(argumentText);
-			if (!Array.isArray(argumentSuggestions) || argumentSuggestions.length === 0) {
-				return null;
-			}
-
-			return {
-				items: argumentSuggestions,
-				prefix: argumentText,
-			};
 		}
 
 		const pathMatch = this.extractPathPrefix(textBeforeCursor, options.force ?? false);
@@ -460,11 +437,11 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 		const adjustedAfterCursor =
 			isQuotedPrefix && hasTrailingQuoteInItem && hasLeadingQuoteAfterCursor ? afterCursor.slice(1) : afterCursor;
 
-		// Check if we're completing a slash command (prefix starts with "/" but NOT a file path)
-		// Slash commands are at the start of the line and don't contain path separators after the first /
-		const isSlashCommand = prefix.startsWith("/") && beforePrefix.trim() === "" && !prefix.slice(1).includes("/");
+		const slashCommandContext = this.extractSlashCommandContext(currentLine.slice(0, cursorCol));
+		const isSlashCommand =
+			slashCommandContext?.prefix === prefix &&
+			this.commands.some((command) => ("name" in command ? command.name : command.value) === item.value);
 		if (isSlashCommand) {
-			// This is a command name completion
 			const newLine = `${beforePrefix}/${item.value} ${adjustedAfterCursor}`;
 			const newLines = [...lines];
 			newLines[cursorLine] = newLine;
@@ -529,6 +506,50 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 			cursorLine,
 			cursorCol: beforePrefix.length + cursorOffset,
 		};
+	}
+
+	private extractSlashCommandContext(text: string): { prefix: string; skillsOnly: boolean } | null {
+		const tokenStart = Math.max(text.lastIndexOf(" "), text.lastIndexOf("\t")) + 1;
+		const prefix = text.slice(tokenStart);
+		if (!prefix.startsWith("/") || prefix.slice(1).includes("/")) {
+			return null;
+		}
+
+		const precedingTokens = text.slice(0, tokenStart).trim().split(/\s+/).filter(Boolean);
+		if (precedingTokens.length === 0) {
+			return { prefix, skillsOnly: false };
+		}
+
+		const skillCommands = new Set(
+			this.commands
+				.map((command) => ("name" in command ? command.name : command.value))
+				.filter((name) => name.startsWith("skill:")),
+		);
+		const isSkillChain = precedingTokens.every((token) => token.startsWith("/") && skillCommands.has(token.slice(1)));
+		return isSkillChain ? { prefix, skillsOnly: true } : null;
+	}
+
+	private getSlashCommandSuggestions(prefix: string, skillsOnly: boolean): AutocompleteSuggestions | null {
+		const query = prefix.slice(1);
+		const commands = this.commands
+			.map((command) => {
+				const name = "name" in command ? command.name : command.value;
+				const hint = "argumentHint" in command && command.argumentHint ? command.argumentHint : undefined;
+				const description = command.description ?? "";
+				return {
+					name,
+					label: name,
+					description: hint ? (description ? `${hint} — ${description}` : hint) : description,
+				};
+			})
+			.filter((command) => !skillsOnly || command.name.startsWith("skill:"));
+		const items: AutocompleteItem[] = fuzzyFilter(commands, query, (command) => command.name).map((command) => ({
+			value: command.name,
+			label: command.label,
+			...(command.description && { description: command.description }),
+		}));
+
+		return items.length > 0 ? { items, prefix } : null;
 	}
 
 	// Extract @ prefix for fuzzy file suggestions

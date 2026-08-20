@@ -7,6 +7,7 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI, InputEvent } from "../../src/core/extensions/index.ts";
 import type { PromptTemplate } from "../../src/core/prompt-templates.ts";
+import type { Skill } from "../../src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../../src/core/source-info.ts";
 import { createTestResourceLoader } from "../utilities.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
@@ -189,6 +190,58 @@ describe("AgentSession prompt characterization", () => {
 		expect(expandedPrompt).toContain('<skill name="test" location="');
 		expect(expandedPrompt).toContain("Use the skill body.");
 		expect(expandedPrompt).toContain("explain this");
+	});
+
+	it("expands multiple leading skill commands before sending the prompt", async () => {
+		const tempDir = join(tmpdir(), `pi-skills-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		mkdirSync(tempDir, { recursive: true });
+		tempDirs.push(tempDir);
+		const firstPath = join(tempDir, "first.md");
+		const secondPath = join(tempDir, "second.md");
+		writeFileSync(firstPath, "# First Skill\n\nUse the first skill.");
+		writeFileSync(secondPath, "# Second Skill\n\nUse the second skill.");
+
+		const createSkill = (name: string, filePath: string): Skill => ({
+			name,
+			description: `${name} skill`,
+			filePath,
+			disableModelInvocation: false,
+			baseDir: tempDir,
+			sourceInfo: createSyntheticSourceInfo(filePath, {
+				source: "local",
+				scope: "project",
+				origin: "top-level",
+				baseDir: tempDir,
+			}),
+		});
+		const resourceLoader = {
+			...createTestResourceLoader(),
+			getSkills: () => ({
+				skills: [createSkill("first", firstPath), createSkill("second", secondPath)],
+				diagnostics: [],
+			}),
+		};
+		const harness = await createHarness({ resourceLoader });
+		harnesses.push(harness);
+		let expandedPrompt = "";
+
+		harness.setResponses([
+			(context) => {
+				const user = context.messages.find((message) => message.role === "user");
+				expandedPrompt = user ? getMessageText(user) : "";
+				return fauxAssistantMessage("ok");
+			},
+		]);
+
+		await harness.session.prompt("/skill:first /skill:second review this");
+
+		const firstIndex = expandedPrompt.indexOf('<skill name="first"');
+		const secondIndex = expandedPrompt.indexOf('<skill name="second"');
+		expect(firstIndex).toBeGreaterThanOrEqual(0);
+		expect(secondIndex).toBeGreaterThan(firstIndex);
+		expect(expandedPrompt).toContain("Use the first skill.");
+		expect(expandedPrompt).toContain("Use the second skill.");
+		expect(expandedPrompt.endsWith("review this")).toBe(true);
 	});
 
 	it("expands prompt templates before sending the prompt", async () => {
