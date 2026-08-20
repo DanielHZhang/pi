@@ -50,6 +50,12 @@ Arguments after `/skill:name` are appended to the loaded instructions as a user 
 /skill:pdf-tools extract report.pdf
 ```
 
+Place consecutive `/skill:name` commands at the start of a prompt to load multiple skills. Text after the last skill command is appended after all selected skill contents:
+
+```text
+/skill:code-review /skill:security-audit .
+```
+
 Set `disable-model-invocation: true` in frontmatter when a skill should be available only through its explicit command. The `enableSkillCommands` [setting](settings.md) controls whether skill commands appear in interactive command discovery; manually entered `/skill:name` commands still work.
 
 <a id="choose-where-it-loads"></a>
