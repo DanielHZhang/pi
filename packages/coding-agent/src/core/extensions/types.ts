@@ -55,6 +55,7 @@ import type { KeybindingsManager } from "../keybindings.ts";
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
+import type { ModelRuntime } from "../model-runtime.ts";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
@@ -319,6 +320,8 @@ export interface ExtensionContext {
 	sessionManager: ReadonlySessionManager;
 	/** Model registry for API key resolution */
 	modelRegistry: ModelRegistry;
+	/** Session model runtime. Pass this to child sessions to inherit providers and credential selection. */
+	modelRuntime: ModelRuntime;
 	/** Current model (may be undefined) */
 	model: Model<any> | undefined;
 	/** Models scoped to this session (resolved from `--models` /

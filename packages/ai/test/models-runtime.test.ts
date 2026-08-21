@@ -865,10 +865,15 @@ describe("Models runtime", () => {
 		expect(await models.getAuth("p1")).toBeUndefined();
 	});
 
-	it("refreshes expired oauth credentials and persists the rotated credential", async () => {
+	it("refreshes expired oauth credentials and preserves their label", async () => {
 		const credentials = new InMemoryCredentialStore();
 		const oauth = testOAuth({
-			refresh: async (credential) => ({ ...credential, access: "new-token", expires: Date.now() + 60 * 60_000 }),
+			refresh: async () => ({
+				type: "oauth",
+				access: "new-token",
+				refresh: "rotated-refresh",
+				expires: Date.now() + 60 * 60_000,
+			}),
 		});
 		const models = createModels({ credentials });
 		models.setProvider(testProvider({ id: "p1", auth: { oauth } }));
@@ -877,11 +882,12 @@ describe("Models runtime", () => {
 			access: "old-token",
 			refresh: "r",
 			expires: 0,
+			label: "W",
 		}));
 
 		const resolution = await models.getAuth("p1");
 		expect(resolution?.auth.apiKey).toBe("new-token");
-		expect(((await credentials.read("p1")) as { access: string }).access).toBe("new-token");
+		expect(await credentials.read("p1")).toMatchObject({ access: "new-token", label: "W" });
 	});
 
 	it("refreshes oauth credentials with less than five minutes remaining", async () => {
