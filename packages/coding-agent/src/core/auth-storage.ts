@@ -246,7 +246,8 @@ export class ReadOnlyAuthStorage implements CredentialStore {
 				typeof value.access === "string" &&
 				typeof value.refresh === "string" &&
 				typeof value.expires === "number" &&
-				Number.isFinite(value.expires)
+				Number.isFinite(value.expires) &&
+				(value.label === undefined || typeof value.label === "string")
 			) {
 				continue;
 			}
@@ -273,6 +274,9 @@ export class ReadOnlyAuthStorage implements CredentialStore {
 		const credentials = Object.entries(this.load()).map(([providerId, credential]) => ({
 			providerId,
 			type: credential.type,
+			...(credential.type === "oauth" && typeof credential.label === "string" && credential.label
+				? { label: credential.label }
+				: {}),
 		}));
 		options?.signal?.throwIfAborted();
 		return credentials;
@@ -487,7 +491,13 @@ export class AuthStorage implements CredentialStore {
 	async list(options?: AuthOperationOptions): Promise<readonly CredentialInfo[]> {
 		const entries = Object.entries(await this.readLatestData(options));
 		options?.signal?.throwIfAborted();
-		return entries.map(([providerId, credential]) => ({ providerId, type: credential.type }));
+		return entries.map(([providerId, credential]) => ({
+			providerId,
+			type: credential.type,
+			...(credential.type === "oauth" && typeof credential.label === "string" && credential.label
+				? { label: credential.label }
+				: {}),
+		}));
 	}
 }
 

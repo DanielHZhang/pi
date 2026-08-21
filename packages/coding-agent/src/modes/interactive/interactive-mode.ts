@@ -2384,6 +2384,7 @@ export class InteractiveMode {
 			cwd: this.sessionManager.getCwd(),
 			sessionManager: this.sessionManager,
 			modelRegistry: extensionRunner.getModelRegistry(),
+			modelRuntime: this.session.modelRuntime,
 			model: this.session.model,
 			scopedModels: this.session.scopedModels,
 			thinkingLevel: this.session.thinkingLevel,
@@ -6007,13 +6008,19 @@ export class InteractiveMode {
 
 	private async getLogoutProviderOptions(): Promise<AuthSelectorProvider[]> {
 		return (await this.session.modelRuntime.listCredentials({ signal: AbortSignal.timeout(15_000) }))
-			.map(({ providerId, type }) => {
+			.map(({ providerId: credentialKey, type, label }) => {
+				const providerId = this.session.modelRuntime.getProviderIdForCredentialKey(credentialKey);
 				const provider = this.session.modelRuntime.getProvider(providerId);
+				const providerName = provider?.name ?? providerId;
 				return {
-					id: providerId,
-					name: provider?.name ?? providerId,
+					id: credentialKey,
+					name: label
+						? `${providerName} (${label})`
+						: credentialKey === providerId
+							? providerName
+							: `${providerName} (${credentialKey})`,
 					authType: type,
-					status: { type, source: "stored credential" },
+					status: { type, source: label ?? "stored credential" },
 					subscription: provider?.auth.oauth?.isSubscription === true,
 				};
 			})
@@ -6026,16 +6033,18 @@ export class InteractiveMode {
 			return;
 		}
 
-		const providerOptions = findMatchingProviders(this.getLoginProviderOptions(), providerRef);
+		const providerId = this.session.modelRuntime.getProviderIdForCredentialKey(providerRef);
+		const credentialKey = providerId === providerRef ? undefined : providerRef;
+		const providerOptions = findMatchingProviders(this.getLoginProviderOptions(), providerId);
 		if (providerOptions.length === 1) {
-			await this.startProviderLogin(providerOptions[0]!);
+			await this.startProviderLogin(providerOptions[0]!, credentialKey);
 			return;
 		}
 
 		if (providerOptions.length > 1) {
 			const providerIds = new Set(providerOptions.map((provider) => provider.id));
 			if (providerIds.size === 1) {
-				this.showLoginAuthTypeSelector(providerOptions);
+				this.showLoginAuthTypeSelector(providerOptions, credentialKey);
 				return;
 			}
 		}
@@ -6044,17 +6053,22 @@ export class InteractiveMode {
 	}
 
 	/** `onBack` reopens the selector the login was started from when the user cancels it. */
-	private async startProviderLogin(providerOption: AuthSelectorProvider, onBack?: () => void): Promise<void> {
+	private async startProviderLogin(
+		providerOption: AuthSelectorProvider,
+		credentialKey?: string,
+		onBack?: () => void,
+	): Promise<void> {
+		const displayName = credentialKey ? `${providerOption.name} (${credentialKey})` : providerOption.name;
 		if (providerOption.authType === "oauth") {
-			await this.showLoginDialog(providerOption.id, providerOption.name, onBack);
+			await this.showLoginDialog(providerOption.id, displayName, credentialKey, onBack);
 		} else if (providerOption.method?.login) {
-			await this.showApiKeyLoginDialog(providerOption.id, providerOption.name, onBack);
+			await this.showApiKeyLoginDialog(providerOption.id, displayName, credentialKey, onBack);
 		} else {
 			this.showAmbientAuthDialog(providerOption, onBack);
 		}
 	}
 
-	private showLoginAuthTypeSelector(providerOptions?: AuthSelectorProvider[]): void {
+	private showLoginAuthTypeSelector(providerOptions?: AuthSelectorProvider[], credentialKey?: string): void {
 		// The top-level selector offers Radius directly, as its last option.
 		const radiusOption = providerOptions
 			? undefined
@@ -6086,7 +6100,7 @@ export class InteractiveMode {
 		if (providerOptions && options.length === 1) {
 			const providerOption = providerOptions[0];
 			if (providerOption) {
-				void this.startProviderLogin(providerOption);
+				void this.startProviderLogin(providerOption, credentialKey);
 			}
 			return;
 		}
@@ -6098,14 +6112,16 @@ export class InteractiveMode {
 			const onSelect = (option: string) => {
 				done();
 				if (radiusOption && option === radiusLabel) {
-					void this.startProviderLogin(radiusOption, () => this.showLoginAuthTypeSelector());
+					void this.startProviderLogin(radiusOption, undefined, () => this.showLoginAuthTypeSelector());
 					return;
 				}
 				const authType = option === subscriptionLabel ? "oauth" : "api_key";
 				if (providerOptions) {
 					const providerOption = providerOptions.find((provider) => provider.authType === authType);
 					if (providerOption) {
-						void this.startProviderLogin(providerOption, () => this.showLoginAuthTypeSelector(providerOptions));
+						void this.startProviderLogin(providerOption, credentialKey, () =>
+							this.showLoginAuthTypeSelector(providerOptions),
+						);
 					}
 					return;
 				}
@@ -6157,7 +6173,7 @@ export class InteractiveMode {
 						return;
 					}
 
-					await this.startProviderLogin(providerOption, () =>
+					await this.startProviderLogin(providerOption, undefined, () =>
 						this.showLoginProviderSelector(authType, initialSearchInput),
 					);
 				},
@@ -6208,7 +6224,9 @@ export class InteractiveMode {
 					}
 
 					try {
-						await this.session.modelRuntime.logout(providerOption.id, {
+						const providerId = this.session.modelRuntime.getProviderIdForCredentialKey(providerOption.id);
+						await this.session.modelRuntime.logout(providerId, {
+							credentialKey: providerOption.id,
 							signal: AbortSignal.timeout(15_000),
 						});
 						await this.updateAvailableProviderCount();
@@ -6361,7 +6379,12 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
-	private async showApiKeyLoginDialog(providerId: string, providerName: string, onBack?: () => void): Promise<void> {
+	private async showApiKeyLoginDialog(
+		providerId: string,
+		providerName: string,
+		credentialKey?: string,
+		onBack?: () => void,
+	): Promise<void> {
 		const previousModel = this.session.model;
 
 		const dialog = new LoginDialogComponent(
@@ -6394,7 +6417,7 @@ export class InteractiveMode {
 		};
 
 		try {
-			await this.loginProvider(dialog, providerId, providerName, "api_key");
+			await this.loginProvider(dialog, providerId, providerName, "api_key", credentialKey);
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "api_key", previousModel);
 		} catch (error: unknown) {
@@ -6489,6 +6512,7 @@ export class InteractiveMode {
 		providerId: string,
 		providerName: string,
 		method: "api_key" | "oauth",
+		credentialKey?: string,
 	): Promise<void> {
 		this.programStatus.setBlocked("login", { kind: "auth", message: `Log in to ${providerName}` });
 		try {
@@ -6500,14 +6524,19 @@ export class InteractiveMode {
 					prompt: (prompt) => this.showAuthPrompt(dialog, prompt, providerId),
 					notify: (event) => this.notifyAuthDialog(dialog, event),
 				},
-				{ getDeviceId: () => this.settingsManager.getOrCreateDeviceId() },
+				{ credentialKey, getDeviceId: () => this.settingsManager.getOrCreateDeviceId() },
 			);
 		} finally {
 			this.programStatus.setBlocked("login", undefined);
 		}
 	}
 
-	private async showLoginDialog(providerId: string, providerName: string, onBack?: () => void): Promise<void> {
+	private async showLoginDialog(
+		providerId: string,
+		providerName: string,
+		credentialKey?: string,
+		onBack?: () => void,
+	): Promise<void> {
 		const previousModel = this.session.model;
 		const dialog = new LoginDialogComponent(this.ui, providerId, (_success, _message) => {}, providerName);
 		this.editorContainer.clear();
@@ -6523,7 +6552,7 @@ export class InteractiveMode {
 		};
 
 		try {
-			await this.loginProvider(dialog, providerId, providerName, "oauth");
+			await this.loginProvider(dialog, providerId, providerName, "oauth", credentialKey);
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "oauth", previousModel);
 			if (providerId === RADIUS_PROVIDER_ID) this.offerRadiusMcpServer(providerId, providerName);

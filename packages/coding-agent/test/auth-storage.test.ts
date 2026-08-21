@@ -49,9 +49,11 @@ describe("AuthStorage", () => {
 			access: "access-token",
 			refresh: "refresh-token",
 			expires: Date.now() + 60_000,
+			label: "P",
 		};
 		const storage = AuthStorage.inMemory({ anthropic: credential });
 		expect(await storage.read("anthropic")).toEqual(credential);
+		expect(await storage.list()).toEqual([{ providerId: "anthropic", type: "oauth", label: "P" }]);
 	});
 
 	test("credential-scoped env takes precedence and remains inspectable", async () => {

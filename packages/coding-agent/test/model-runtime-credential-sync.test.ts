@@ -1,4 +1,11 @@
-import type { ApiKeyCredential, Credential, CredentialStore, Model, Provider } from "@earendil-works/pi-ai";
+import type {
+	ApiKeyCredential,
+	Credential,
+	CredentialStore,
+	LoginOptions,
+	Model,
+	Provider,
+} from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { CredentialSynchronizationError, ModelRuntime } from "../src/core/model-runtime.ts";
@@ -21,7 +28,7 @@ function model(provider: string): Model<"openai-completions"> {
 function provider(
 	id: string,
 	options: {
-		login?: () => Promise<ApiKeyCredential>;
+		login?: (options?: LoginOptions) => Promise<ApiKeyCredential>;
 		refreshModels?: Provider["refreshModels"];
 	} = {},
 ): Provider<"openai-completions"> {
@@ -32,7 +39,8 @@ function provider(
 		auth: {
 			apiKey: {
 				name: "API key",
-				login: async () => options.login?.() ?? { type: "api_key", key: `${id}-key` },
+				login: async (_interaction, loginOptions) =>
+					options.login?.(loginOptions) ?? { type: "api_key", key: `${id}-key` },
 				check: async ({ credential }) => (credential ? { type: "api_key", source: "stored" } : undefined),
 				resolve: async ({ credential }) =>
 					credential ? { auth: { apiKey: credential.key }, source: "stored" } : undefined,
@@ -75,6 +83,52 @@ describe("ModelRuntime credential synchronization", () => {
 		expect(await credentials.read("dynamic")).toBeUndefined();
 	});
 
+	it("stores additional OpenAI Codex logins under numbered credential keys", async () => {
+		const credentials = AuthStorage.inMemory({
+			"openai-codex": { type: "api_key", key: "first-account" },
+		});
+		const runtime = await runtimeWithProvider(provider("openai-codex"), credentials);
+
+		await runtime.login(
+			"openai-codex",
+			"api_key",
+			{ prompt: async () => "unused", notify: () => {} },
+			{ credentialKey: "openai-codex-2" },
+		);
+
+		expect(await credentials.read("openai-codex-2")).toEqual({
+			type: "api_key",
+			key: "openai-codex-key",
+		});
+		expect(runtime.getSelectedCredentialKey("openai-codex")).toBe("openai-codex");
+		expect((await runtime.getAuth("openai-codex"))?.auth.apiKey).toBe("first-account");
+
+		await runtime.selectCredential("openai-codex", "openai-codex-2");
+		expect((await runtime.getAuth("openai-codex"))?.auth.apiKey).toBe("openai-codex-key");
+	});
+
+	it("forwards login context when storing an additional credential", async () => {
+		const credentials = AuthStorage.inMemory({
+			"openai-codex": { type: "api_key", key: "first-account" },
+		});
+		const runtime = await runtimeWithProvider(
+			provider("openai-codex", {
+				login: async (options) => ({ type: "api_key", key: options?.getDeviceId?.() ?? "missing-device-id" }),
+			}),
+			credentials,
+		);
+
+		await runtime.login(
+			"openai-codex",
+			"api_key",
+			{ prompt: async () => "unused", notify: () => {} },
+			{ credentialKey: "openai-codex-2", getDeviceId: () => "device-id" },
+		);
+
+		expect(await credentials.read("openai-codex-2")).toEqual({ type: "api_key", key: "device-id" });
+		expect(runtime.getSelectedCredentialKey("openai-codex")).toBe("openai-codex");
+	});
+
 	it("orders same-provider credential operations through local synchronization", async () => {
 		let markLoginStarted: (() => void) | undefined;
 		let finishLogin: (() => void) | undefined;
@@ -106,6 +160,46 @@ describe("ModelRuntime credential synchronization", () => {
 		await Promise.all([login, logout]);
 		expect(await credentials.read("ordered")).toBeUndefined();
 		expect(runtime.hasConfiguredAuth("ordered")).toBe(false);
+	});
+
+	it("serializes logins to different profiles of the same provider", async () => {
+		let markStarted: (() => void) | undefined;
+		let finishFirst: (() => void) | undefined;
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve;
+		});
+		const blocked = new Promise<void>((resolve) => {
+			finishFirst = resolve;
+		});
+		let loginCount = 0;
+		const credentials = AuthStorage.inMemory();
+		const runtime = await runtimeWithProvider(
+			provider("openai-codex", {
+				login: async () => {
+					loginCount += 1;
+					if (loginCount === 1) {
+						markStarted?.();
+						await blocked;
+					}
+					return { type: "api_key", key: `account-${loginCount}` };
+				},
+			}),
+			credentials,
+		);
+
+		const first = runtime.login("openai-codex", "api_key", { prompt: async () => "unused", notify: () => {} });
+		await started;
+		const second = runtime.login(
+			"openai-codex",
+			"api_key",
+			{ prompt: async () => "unused", notify: () => {} },
+			{ credentialKey: "openai-codex-2" },
+		);
+		finishFirst?.();
+		await Promise.all([first, second]);
+
+		expect(await credentials.read("openai-codex")).toEqual({ type: "api_key", key: "account-1" });
+		expect(await credentials.read("openai-codex-2")).toEqual({ type: "api_key", key: "account-2" });
 	});
 
 	it("allows different providers to run credential flows concurrently", async () => {
