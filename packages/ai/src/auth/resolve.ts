@@ -137,7 +137,8 @@ export async function refreshStoredOAuthCredential(
 				if (current?.type !== "oauth") return undefined; // logged out meanwhile
 				if (!needsRefresh(current)) return undefined; // another process/request refreshed
 				try {
-					return await oauth.refresh(current, AbortSignal.timeout(DEFAULT_OAUTH_REFRESH_TIMEOUT_MS));
+					const refreshed = await oauth.refresh(current, AbortSignal.timeout(DEFAULT_OAUTH_REFRESH_TIMEOUT_MS));
+					return current.label && !refreshed.label ? { ...refreshed, label: current.label } : refreshed;
 				} catch (error) {
 					throw new ModelsError("oauth", `OAuth refresh failed for ${providerId}`, { cause: error });
 				}
