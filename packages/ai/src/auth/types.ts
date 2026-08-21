@@ -31,6 +31,8 @@ export interface OAuthCredentials {
 /** Stored canonical OAuth credential. */
 export interface OAuthCredential extends OAuthCredentials {
 	type: "oauth";
+	/** User-defined short label for selecting and displaying this credential. */
+	label?: string;
 }
 
 /** One type-tagged credential per provider — the shape of today's auth.json. */
@@ -40,6 +42,8 @@ export type Credential = ApiKeyCredential | OAuthCredential;
 export interface CredentialInfo {
 	providerId: string;
 	type: Credential["type"];
+	/** Non-secret user-defined label for OAuth credentials. */
+	label?: string;
 }
 
 /** Optional cancellation for public auth and credential operations. */
