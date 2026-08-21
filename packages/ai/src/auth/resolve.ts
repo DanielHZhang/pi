@@ -150,7 +150,8 @@ async function resolveStoredOAuth(
 							signal,
 							AbortSignal.timeout(DEFAULT_OAUTH_REFRESH_TIMEOUT_MS),
 						]);
-						return await oauth.refresh(current, refreshSignal);
+						const refreshed = await oauth.refresh(current, refreshSignal);
+						return current.label && !refreshed.label ? { ...refreshed, label: current.label } : refreshed;
 					} catch (error) {
 						throw new ModelsError("oauth", `OAuth refresh failed for ${providerId}`, { cause: error });
 					}
