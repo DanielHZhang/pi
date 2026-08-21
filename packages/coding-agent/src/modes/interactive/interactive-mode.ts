@@ -2129,6 +2129,7 @@ export class InteractiveMode {
 			cwd: this.sessionManager.getCwd(),
 			sessionManager: this.sessionManager,
 			modelRegistry: extensionRunner.getModelRegistry(),
+			modelRuntime: this.session.modelRuntime,
 			model: this.session.model,
 			scopedModels: this.session.scopedModels,
 			thinkingLevel: this.session.thinkingLevel,
@@ -5496,12 +5497,20 @@ export class InteractiveMode {
 
 	private async getLogoutProviderOptions(): Promise<AuthSelectorProvider[]> {
 		return (await this.session.modelRuntime.listCredentials({ signal: AbortSignal.timeout(15_000) }))
-			.map(({ providerId, type }) => ({
-				id: providerId,
-				name: this.session.modelRuntime.getProvider(providerId)?.name ?? providerId,
-				authType: type,
-				status: { type, source: "stored credential" },
-			}))
+			.map(({ providerId: credentialKey, type, label }) => {
+				const providerId = this.session.modelRuntime.getProviderIdForCredentialKey(credentialKey);
+				const providerName = this.session.modelRuntime.getProvider(providerId)?.name ?? providerId;
+				return {
+					id: credentialKey,
+					name: label
+						? `${providerName} (${label})`
+						: credentialKey === providerId
+							? providerName
+							: `${providerName} (${credentialKey})`,
+					authType: type,
+					status: { type, source: label ?? "stored credential" },
+				};
+			})
 			.sort((a, b) => a.name.localeCompare(b.name));
 	}
 
@@ -5524,16 +5533,18 @@ export class InteractiveMode {
 			return;
 		}
 
-		const providerOptions = this.findLoginProviderOptions(providerRef);
+		const providerId = this.session.modelRuntime.getProviderIdForCredentialKey(providerRef);
+		const credentialKey = providerId === providerRef ? undefined : providerRef;
+		const providerOptions = this.findLoginProviderOptions(providerId);
 		if (providerOptions.length === 1) {
-			await this.startProviderLogin(providerOptions[0]!);
+			await this.startProviderLogin(providerOptions[0]!, credentialKey);
 			return;
 		}
 
 		if (providerOptions.length > 1) {
 			const providerIds = new Set(providerOptions.map((provider) => provider.id));
 			if (providerIds.size === 1) {
-				this.showLoginAuthTypeSelector(providerOptions);
+				this.showLoginAuthTypeSelector(providerOptions, credentialKey);
 				return;
 			}
 		}
@@ -5541,17 +5552,18 @@ export class InteractiveMode {
 		this.showLoginProviderSelector(undefined, providerRef);
 	}
 
-	private async startProviderLogin(providerOption: AuthSelectorProvider): Promise<void> {
+	private async startProviderLogin(providerOption: AuthSelectorProvider, credentialKey?: string): Promise<void> {
+		const displayName = credentialKey ? `${providerOption.name} (${credentialKey})` : providerOption.name;
 		if (providerOption.authType === "oauth") {
-			await this.showLoginDialog(providerOption.id, providerOption.name);
+			await this.showLoginDialog(providerOption.id, displayName, credentialKey);
 		} else if (providerOption.method?.login) {
-			await this.showApiKeyLoginDialog(providerOption.id, providerOption.name);
+			await this.showApiKeyLoginDialog(providerOption.id, displayName, credentialKey);
 		} else {
 			this.showAmbientAuthDialog(providerOption);
 		}
 	}
 
-	private showLoginAuthTypeSelector(providerOptions?: AuthSelectorProvider[]): void {
+	private showLoginAuthTypeSelector(providerOptions?: AuthSelectorProvider[], credentialKey?: string): void {
 		const oauthProvider = providerOptions?.find((provider) => provider.authType === "oauth");
 		const oauthLoginLabel =
 			oauthProvider?.method && "loginLabel" in oauthProvider.method ? oauthProvider.method.loginLabel : undefined;
@@ -5576,7 +5588,7 @@ export class InteractiveMode {
 		if (providerOptions && options.length === 1) {
 			const providerOption = providerOptions[0];
 			if (providerOption) {
-				void this.startProviderLogin(providerOption);
+				void this.startProviderLogin(providerOption, credentialKey);
 			}
 			return;
 		}
@@ -5594,7 +5606,7 @@ export class InteractiveMode {
 					if (providerOptions) {
 						const providerOption = providerOptions.find((provider) => provider.authType === authType);
 						if (providerOption) {
-							void this.startProviderLogin(providerOption);
+							void this.startProviderLogin(providerOption, credentialKey);
 						}
 						return;
 					}
@@ -5685,7 +5697,9 @@ export class InteractiveMode {
 					}
 
 					try {
-						await this.session.modelRuntime.logout(providerOption.id, {
+						const providerId = this.session.modelRuntime.getProviderIdForCredentialKey(providerOption.id);
+						await this.session.modelRuntime.logout(providerId, {
+							credentialKey: providerOption.id,
 							signal: AbortSignal.timeout(15_000),
 						});
 						await this.updateAvailableProviderCount();
@@ -5814,7 +5828,11 @@ export class InteractiveMode {
 		this.ui.requestRender();
 	}
 
-	private async showApiKeyLoginDialog(providerId: string, providerName: string): Promise<void> {
+	private async showApiKeyLoginDialog(
+		providerId: string,
+		providerName: string,
+		credentialKey?: string,
+	): Promise<void> {
 		const previousModel = this.session.model;
 
 		const dialog = new LoginDialogComponent(
@@ -5847,7 +5865,7 @@ export class InteractiveMode {
 		};
 
 		try {
-			await this.loginProvider(dialog, providerId, "api_key");
+			await this.loginProvider(dialog, providerId, "api_key", credentialKey);
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "api_key", previousModel);
 		} catch (error: unknown) {
@@ -5937,15 +5955,21 @@ export class InteractiveMode {
 		dialog: LoginDialogComponent,
 		providerId: string,
 		method: "api_key" | "oauth",
+		credentialKey?: string,
 	): Promise<void> {
-		await this.session.modelRuntime.login(providerId, method, {
-			signal: dialog.signal,
-			prompt: (prompt) => this.showAuthPrompt(dialog, prompt),
-			notify: (event) => this.notifyAuthDialog(dialog, event),
-		});
+		await this.session.modelRuntime.login(
+			providerId,
+			method,
+			{
+				signal: dialog.signal,
+				prompt: (prompt) => this.showAuthPrompt(dialog, prompt),
+				notify: (event) => this.notifyAuthDialog(dialog, event),
+			},
+			{ credentialKey },
+		);
 	}
 
-	private async showLoginDialog(providerId: string, providerName: string): Promise<void> {
+	private async showLoginDialog(providerId: string, providerName: string, credentialKey?: string): Promise<void> {
 		const previousModel = this.session.model;
 		const dialog = new LoginDialogComponent(this.ui, providerId, (_success, _message) => {}, providerName);
 		this.editorContainer.clear();
@@ -5961,7 +5985,7 @@ export class InteractiveMode {
 		};
 
 		try {
-			await this.loginProvider(dialog, providerId, "oauth");
+			await this.loginProvider(dialog, providerId, "oauth", credentialKey);
 			restoreEditor();
 			await this.completeProviderAuthentication(providerId, providerName, "oauth", previousModel);
 		} catch (error: unknown) {

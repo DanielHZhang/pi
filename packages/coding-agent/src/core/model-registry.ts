@@ -12,6 +12,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "./model-runtime.ts";
 import type { AuthStatus, ProviderConfigInput } from "./provider-composer.ts";
+import type { CredentialProfile } from "./runtime-credentials.ts";
 
 export type { ProviderConfigInput } from "./provider-composer.ts";
 export type ResolvedRequestAuth =
@@ -34,6 +35,10 @@ export class ModelRegistry {
 
 	constructor(runtime: ModelRuntime) {
 		this.runtime = runtime;
+	}
+
+	getRuntime(): ModelRuntime {
+		return this.runtime;
 	}
 
 	/** Reload models.json asynchronously. Await before making synchronous registry reads. */
@@ -94,6 +99,26 @@ export class ModelRegistry {
 
 	getProviderAuthStatus(provider: string): AuthStatus {
 		return this.runtime.getProviderAuthStatus(provider);
+	}
+
+	getSelectedCredentialKey(provider: string): string {
+		return this.runtime.getSelectedCredentialKey(provider);
+	}
+
+	listCredentialProfiles(provider: string): Promise<CredentialProfile[]> {
+		return this.runtime.listCredentialProfiles(provider);
+	}
+
+	selectCredential(provider: string, credentialKey: string): Promise<void> {
+		return this.runtime.selectCredential(provider, credentialKey);
+	}
+
+	resetCredentialSelection(provider: string): Promise<void> {
+		return this.runtime.resetCredentialSelection(provider);
+	}
+
+	nextCredentialKey(provider: string): Promise<string> {
+		return this.runtime.nextCredentialKey(provider);
 	}
 
 	getProvider(provider: string): Provider | undefined {

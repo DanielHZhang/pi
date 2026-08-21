@@ -75,6 +75,30 @@ describe("ModelRuntime credential synchronization", () => {
 		expect(await credentials.read("dynamic")).toBeUndefined();
 	});
 
+	it("stores additional OpenAI Codex logins under numbered credential keys", async () => {
+		const credentials = AuthStorage.inMemory({
+			"openai-codex": { type: "api_key", key: "first-account" },
+		});
+		const runtime = await runtimeWithProvider(provider("openai-codex"), credentials);
+
+		await runtime.login(
+			"openai-codex",
+			"api_key",
+			{ prompt: async () => "unused", notify: () => {} },
+			{ credentialKey: "openai-codex-2" },
+		);
+
+		expect(await credentials.read("openai-codex-2")).toEqual({
+			type: "api_key",
+			key: "openai-codex-key",
+		});
+		expect(runtime.getSelectedCredentialKey("openai-codex")).toBe("openai-codex");
+		expect((await runtime.getAuth("openai-codex"))?.auth.apiKey).toBe("first-account");
+
+		await runtime.selectCredential("openai-codex", "openai-codex-2");
+		expect((await runtime.getAuth("openai-codex"))?.auth.apiKey).toBe("openai-codex-key");
+	});
+
 	it("orders same-provider credential operations through local synchronization", async () => {
 		let markLoginStarted: (() => void) | undefined;
 		let finishLogin: (() => void) | undefined;

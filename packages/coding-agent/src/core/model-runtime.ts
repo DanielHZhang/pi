@@ -53,7 +53,7 @@ import {
 	validateExtensionProvider,
 } from "./provider-composer.ts";
 import { withRemoteCatalog } from "./remote-catalog-provider.ts";
-import { RuntimeCredentials } from "./runtime-credentials.ts";
+import { type CredentialProfile, RuntimeCredentials } from "./runtime-credentials.ts";
 
 interface ModelRuntimeSnapshot {
 	all: readonly Model<Api>[];
@@ -86,6 +86,16 @@ export interface ModelRuntimeAuthOverrides extends AuthOperationOptions {
 	env?: Record<string, string>;
 	/** Require this much remaining OAuth-token validity; defaults to five minutes. */
 	minOAuthValidityMs?: number;
+}
+
+export interface ModelRuntimeCredentialOptions extends AuthOperationOptions {
+	credentialKey?: string;
+}
+
+export interface ModelRuntimeLoginOptions {
+	credentialKey?: string;
+	/** Select the credential after login. Defaults to true for the canonical key and false for additional profiles. */
+	activate?: boolean;
 }
 
 export type CredentialSynchronizationOperation = "login" | "logout" | "setRuntimeApiKey" | "removeRuntimeApiKey";
@@ -171,6 +181,7 @@ export class ModelRuntime implements Models {
 
 	static async create(options: CreateModelRuntimeOptions = {}): Promise<ModelRuntime> {
 		const credentials = new RuntimeCredentials(options.credentials ?? DefaultAuthStorage.create(options.authPath));
+		await credentials.initializeSelections({ signal: options.signal });
 		const modelsPath =
 			options.modelsPath === null ? undefined : (options.modelsPath ?? join(getAgentDir(), "models.json"));
 		const config = await ModelConfig.load(modelsPath);
@@ -307,7 +318,7 @@ export class ModelRuntime implements Models {
 			all: [...this.models.getModels()],
 			available: [...available],
 			configuredProviders,
-			storedProviders: new Set(credentials.map((entry) => entry.providerId)),
+			storedProviders: this.credentials.providerIdsForCredentials(credentials),
 			auth,
 		};
 		if (errorSeq === this.availabilityErrorSeq) this.availabilityError = undefined;
@@ -432,6 +443,41 @@ export class ModelRuntime implements Models {
 		}
 		if (this.availabilityError) errors.push(`Availability refresh: ${this.availabilityError}`);
 		return errors.length > 0 ? errors.join("\n\n") : undefined;
+	}
+
+	getProviderIdForCredentialKey(credentialKey: string): string {
+		return this.credentials.getProviderIdForCredentialKey(credentialKey);
+	}
+
+	getSelectedCredentialKey(providerId: string): string {
+		return this.credentials.getSelectedCredentialKey(providerId);
+	}
+
+	listCredentialProfiles(providerId: string, options?: AuthOperationOptions): Promise<CredentialProfile[]> {
+		return this.credentials.listProfiles(providerId, options);
+	}
+
+	nextCredentialKey(providerId: string, options?: AuthOperationOptions): Promise<string> {
+		return this.credentials.nextCredentialKey(providerId, options);
+	}
+
+	async selectCredential(
+		providerId: string,
+		credentialKey: string,
+		options: AuthOperationOptions = {},
+	): Promise<void> {
+		const signal = operationSignal(options.signal);
+		if (!(await this.credentials.hasCredentialKey(credentialKey, { signal }))) {
+			throw new Error(`Credential "${credentialKey}" is not configured`);
+		}
+		this.credentials.selectCredential(providerId, credentialKey);
+		await this.refreshProviderAvailability(providerId, signal);
+	}
+
+	async resetCredentialSelection(providerId: string, options: AuthOperationOptions = {}): Promise<void> {
+		const signal = operationSignal(options.signal);
+		await this.credentials.restoreSelection(providerId, undefined, { signal });
+		await this.refreshProviderAvailability(providerId, signal);
 	}
 
 	getRegisteredProviderConfig(providerId: string): ProviderConfigInput | undefined {
@@ -670,20 +716,69 @@ export class ModelRuntime implements Models {
 		await prepared.provider.cancelDeferred(prepared.model, handle, prepared.options as DeferredCancelOptions);
 	}
 
-	login(providerId: string, type: AuthType, interaction: AuthInteraction): Promise<Credential> {
+	login(
+		providerId: string,
+		type: AuthType,
+		interaction: AuthInteraction,
+		options: ModelRuntimeLoginOptions = {},
+	): Promise<Credential> {
 		const signal = operationSignal(interaction.signal);
-		return this.enqueueCredentialOperation(providerId, signal, async () => {
-			const credential = await this.models.login(providerId, type, { ...interaction, signal });
-			await this.synchronizeCredentialState(providerId, "login", credential, signal);
-			return credential;
+		const credentialKey = options.credentialKey ?? providerId;
+		if (!this.credentials.isCredentialKeyForProvider(providerId, credentialKey)) {
+			return Promise.reject(new Error(`Credential "${credentialKey}" does not belong to provider "${providerId}"`));
+		}
+		return this.enqueueCredentialOperation(credentialKey, signal, async () => {
+			const previousCredentialKey = this.credentials.getSelectedCredentialKey(providerId);
+			const previousExists = await this.credentials.hasCredentialKey(previousCredentialKey, { signal });
+			this.credentials.selectCredential(providerId, credentialKey);
+			try {
+				const credential = await this.models.login(providerId, type, { ...interaction, signal });
+				const activate = options.activate ?? credentialKey === providerId;
+				if (!activate && previousExists) {
+					this.credentials.selectCredential(providerId, previousCredentialKey);
+				}
+				await this.synchronizeCredentialState(providerId, "login", credential, signal);
+				return credential;
+			} catch (error) {
+				if (!(error instanceof CredentialSynchronizationError)) {
+					this.credentials.selectCredential(providerId, previousCredentialKey);
+				}
+				throw error;
+			}
 		});
 	}
 
-	logout(providerId: string, options: AuthOperationOptions = {}): Promise<void> {
+	logout(providerId: string, options: ModelRuntimeCredentialOptions = {}): Promise<void> {
 		const signal = operationSignal(options.signal);
-		return this.enqueueCredentialOperation(providerId, signal, async () => {
-			await this.models.logout(providerId, { signal });
-			await this.synchronizeCredentialState(providerId, "logout", undefined, signal);
+		const credentialKey = options.credentialKey ?? this.credentials.getSelectedCredentialKey(providerId);
+		if (!this.credentials.isCredentialKeyForProvider(providerId, credentialKey)) {
+			return Promise.reject(new Error(`Credential "${credentialKey}" does not belong to provider "${providerId}"`));
+		}
+		return this.enqueueCredentialOperation(credentialKey, signal, async () => {
+			const previousCredentialKey = this.credentials.getSelectedCredentialKey(providerId);
+			let deleted = false;
+			this.credentials.selectCredential(providerId, credentialKey);
+			try {
+				await this.models.logout(providerId, { signal });
+				deleted = true;
+				await this.credentials.restoreSelection(
+					providerId,
+					previousCredentialKey === credentialKey ? undefined : previousCredentialKey,
+				);
+				await this.synchronizeCredentialState(providerId, "logout", undefined, signal);
+			} catch (error) {
+				if (!(error instanceof CredentialSynchronizationError)) {
+					if (deleted) {
+						await this.credentials.restoreSelection(
+							providerId,
+							previousCredentialKey === credentialKey ? undefined : previousCredentialKey,
+						);
+					} else {
+						this.credentials.selectCredential(providerId, previousCredentialKey);
+					}
+				}
+				throw error;
+			}
 		});
 	}
 

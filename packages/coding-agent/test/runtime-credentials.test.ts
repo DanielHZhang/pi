@@ -83,4 +83,75 @@ describe("RuntimeCredentials", () => {
 		expect(await credentials.read("anthropic")).toBeUndefined();
 		expect(await credentials.list()).toEqual([]);
 	});
+
+	test("routes OpenAI Codex auth through the selected credential profile", async () => {
+		const storage = AuthStorage.inMemory({
+			"openai-codex": {
+				type: "oauth",
+				access: "personal",
+				refresh: "personal-refresh",
+				expires: Date.now() + 60_000,
+				label: "P",
+			},
+			"openai-codex-2": {
+				type: "oauth",
+				access: "work",
+				refresh: "work-refresh",
+				expires: Date.now() + 60_000,
+				label: "W",
+			},
+		});
+		const credentials = new RuntimeCredentials(storage);
+		await credentials.initializeSelections();
+
+		expect(await credentials.read("openai-codex")).toMatchObject({ type: "oauth", access: "personal" });
+		credentials.selectCredential("openai-codex", "openai-codex-2");
+		expect(await credentials.read("openai-codex")).toMatchObject({ type: "oauth", access: "work" });
+		expect(await credentials.listProfiles("openai-codex")).toEqual([
+			{
+				providerId: "openai-codex",
+				credentialKey: "openai-codex",
+				index: 1,
+				selected: false,
+				type: "oauth",
+				label: "P",
+			},
+			{
+				providerId: "openai-codex",
+				credentialKey: "openai-codex-2",
+				index: 2,
+				selected: true,
+				type: "oauth",
+				label: "W",
+			},
+		]);
+	});
+
+	test("uses the first numbered OpenAI Codex credential when the canonical key is absent", async () => {
+		const storage = AuthStorage.inMemory({
+			"openai-codex-3": {
+				type: "oauth",
+				access: "third",
+				refresh: "third-refresh",
+				expires: Date.now() + 60_000,
+			},
+			"openai-codex-2": {
+				type: "oauth",
+				access: "second",
+				refresh: "second-refresh",
+				expires: Date.now() + 60_000,
+			},
+		});
+		const credentials = new RuntimeCredentials(storage);
+		await credentials.initializeSelections();
+
+		expect(credentials.getSelectedCredentialKey("openai-codex")).toBe("openai-codex-2");
+		expect(await credentials.read("openai-codex")).toMatchObject({ type: "oauth", access: "second" });
+		expect(await credentials.nextCredentialKey("openai-codex")).toBe("openai-codex-4");
+	});
+
+	test("rejects non-numeric provider lookalikes as OpenAI Codex profiles", () => {
+		const credentials = new RuntimeCredentials(AuthStorage.inMemory());
+		expect(() => credentials.selectCredential("openai-codex", "openai-codex-work")).toThrow(/does not belong/u);
+	});
 });
