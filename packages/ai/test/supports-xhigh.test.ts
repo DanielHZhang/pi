@@ -198,6 +198,16 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model!)).toEqual(["off", "high", "xhigh"]);
 	});
 
+	it.each([
+		"deepseek/deepseek-v4.1-flash",
+		"deepseek/deepseek-v4-flash-0731",
+		"deepseek/deepseek-v4-pro-0813",
+	] as const)("includes low/high/max plus off for OpenRouter %s", (modelId) => {
+		const model = getModel("openrouter", modelId);
+		expect(model).toBeDefined();
+		expect(getSupportedThinkingLevels(model!)).toEqual(["off", "low", "high", "max"]);
+	});
+
 	it("includes max but not xhigh for OpenRouter Opus 4.6 (openai-completions API)", () => {
 		const model = getModel("openrouter", "anthropic/claude-opus-4.6");
 		expect(model).toBeDefined();
