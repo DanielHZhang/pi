@@ -23,7 +23,15 @@ export class RuntimeCredentials implements CredentialStore {
 	}
 
 	async initializeSelections(options?: AuthOperationOptions): Promise<void> {
-		const credentials = await this.store.list(options);
+		let credentials: readonly CredentialInfo[];
+		try {
+			credentials = await this.store.list(options);
+		} catch (error) {
+			// A store that cannot be read surfaces its own error when credentials are used; choosing a
+			// profile is best effort and must not make runtime creation fail.
+			if (options?.signal?.aborted) throw error;
+			return;
+		}
 		this.chooseDefaultSelection(OPENAI_CODEX_PROVIDER_ID, credentials);
 	}
 

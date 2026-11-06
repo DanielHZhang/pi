@@ -127,7 +127,6 @@ describe("collapsible message components", () => {
 							name: "example-skill",
 							location: "/tmp/example-skill.md",
 							content: "details",
-							userMessage: undefined,
 						},
 						undefined,
 						1,

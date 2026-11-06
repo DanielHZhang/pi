@@ -555,6 +555,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		resourceScopes: Required<ResourceScopeSettings>,
 	): ResolvedPaths {
 		return {
+			...paths,
 			extensions: this.filterResourcesByScope(paths.extensions, resourceScopes.extensions),
 			skills: this.filterResourcesByScope(paths.skills, resourceScopes.skills),
 			prompts: this.filterResourcesByScope(paths.prompts, resourceScopes.prompts),

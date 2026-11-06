@@ -5,6 +5,7 @@ import type {
 	LoginOptions,
 	Model,
 	Provider,
+	ProviderAuthInteraction,
 } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
@@ -39,7 +40,7 @@ function provider(
 		auth: {
 			apiKey: {
 				name: "API key",
-				login: async (_interaction, loginOptions) =>
+				login: async (_interaction: ProviderAuthInteraction, loginOptions?: LoginOptions) =>
 					options.login?.(loginOptions) ?? { type: "api_key", key: `${id}-key` },
 				check: async ({ credential }) => (credential ? { type: "api_key", source: "stored" } : undefined),
 				resolve: async ({ credential }) =>

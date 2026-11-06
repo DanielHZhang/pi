@@ -15,13 +15,11 @@ describe("UserMessageComponent", () => {
 		const component = new UserMessageComponent("hello");
 		const lines = component.render(20);
 
-		expect(lines).toHaveLength(3);
+		expect(lines).toHaveLength(1);
 		expect(lines[0]).toContain(OSC133_ZONE_START);
+		expect(lines[0]).toContain("hello");
+		expect(lines[0]).toContain(OSC133_ZONE_END + OSC133_ZONE_FINAL);
 		expect(lines[0].endsWith(BG_RESET)).toBe(true);
-		expect(lines[0]).not.toContain(OSC133_ZONE_END);
-		expect(lines[1]).toContain("hello");
-		expect(lines[2].startsWith(OSC133_ZONE_END + OSC133_ZONE_FINAL)).toBe(true);
-		expect(lines[2].endsWith(BG_RESET)).toBe(true);
 	});
 
 	test("chains Markdown transformers with user message context", () => {
